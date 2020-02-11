@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 import os.path
@@ -139,14 +142,12 @@ class TimeboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
+        graphs = json.loads(graphs)
         res = api.Timeboard.create(
             title=args.filename,
             description="Description for {0}".format(args.filename),
             graphs=[graphs])
+
         report_warnings(res)
         report_errors(res)
 
@@ -173,6 +174,9 @@ class TimeboardClient(object):
 
             if string_ids:
                 dash_obj["id"] = str(dash_obj["id"])
+
+            if not dash_obj.get('template_variables'):
+                dash_obj.pop('template_variables', None)
 
             json.dump(dash_obj, f, indent=2)
 
@@ -230,10 +234,7 @@ class TimeboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
+        graphs = json.loads(graphs)
         res = api.Timeboard.create(title=args.title, description=args.description, graphs=[graphs],
                                    template_variables=args.template_variables)
         report_warnings(res)
@@ -250,10 +251,7 @@ class TimeboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
+        graphs = json.loads(graphs)
 
         res = api.Timeboard.update(args.timeboard_id, title=args.title,
                                    description=args.description, graphs=graphs,
@@ -320,7 +318,7 @@ class TimeboardClient(object):
 
     @classmethod
     def _escape(cls, s):
-        return s.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+        return s.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t") if s else ""
 
 
 def _template_variables(tpl_var_input):

@@ -1,9 +1,13 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
+from io import BytesIO
 import unittest
 import json
 
 # 3p
-from mock import patch, Mock
+from mock import Mock
 import requests
 
 # datadog
@@ -22,12 +26,13 @@ from datadog.api.resources import (
     DeletableAPISubResource,
     ActionAPIResource
 )
-from datadog.util.compat import iteritems
+from datadog.util.compat import iteritems, is_p3k
+from tests.util.contextmanagers import EnvVars
 
 
 API_KEY = "apikey"
 APP_KEY = "applicationkey"
-API_HOST = "host"
+API_HOST = "https://example.com"
 HOST_NAME = "agent.hostname"
 FAKE_PROXY = {
     "https": "http://user:pass@10.10.1.10:3128/",
@@ -69,6 +74,8 @@ class MockResponse(requests.Response):
 class MyCreatable(CreateableAPIResource):
     _resource_name = 'creatables'
 
+class MyParamsApiKeyCreatable(CreateableAPIResource):
+    _resource_name = 'series'
 
 class MyUpdatable(UpdatableAPIResource):
     _resource_name = 'updatables'
@@ -85,21 +92,26 @@ class MyListable(ListableAPIResource):
 class MyDeletable(DeletableAPIResource):
     _resource_name = 'deletables'
 
+
 class MyListableSubResource(ListableAPISubResource):
     _resource_name = 'resource_name'
     _sub_resource_name = 'sub_resource_name'
+
 
 class MyAddableSubResource(AddableAPISubResource):
     _resource_name = 'resource_name'
     _sub_resource_name = 'sub_resource_name'
 
+
 class MyUpdatableSubResource(UpdatableAPISubResource):
     _resource_name = 'resource_name'
     _sub_resource_name = 'sub_resource_name'
 
+
 class MyDeletableSubResource(DeletableAPISubResource):
     _resource_name = 'resource_name'
     _sub_resource_name = 'sub_resource_name'
+
 
 class MyActionable(ActionAPIResource):
     _resource_name = 'actionables'
@@ -126,7 +138,20 @@ class DatadogAPITestCase(unittest.TestCase):
         # self.request_mock.request = Mock(return_value=MockResponse())
 
     def tearDown(self):
-        del RequestClient._session
+        RequestClient._session = None
+
+    def load_request_response(self, status_code=200, response_body='{}', raise_for_status=False):
+        """
+        Load the repsonse body from the given payload
+        """
+        mock_response = MockResponse(raise_for_status=raise_for_status)
+        if is_p3k():
+            mock_response.raw = BytesIO(bytes(response_body, 'utf-8'))
+        else:
+            mock_response.raw = BytesIO(response_body)
+        mock_response.status_code = status_code
+
+        self.request_mock.request = Mock(return_value=mock_response)
 
     def arm_requests_to_raise(self):
         """
@@ -143,8 +168,8 @@ class DatadogAPITestCase(unittest.TestCase):
 
     def request_called_with(self, method, url, data=None, params=None):
         (req_method, req_url), others = self.request_mock.call_args()
-        self.assertEquals(method, req_method, req_method)
-        self.assertEquals(url, req_url, req_url)
+        self.assertEqual(method, req_method, req_method)
+        self.assertEqual(url, req_url, req_url)
 
         if data:
             self.assertIn('data', others)
@@ -155,7 +180,7 @@ class DatadogAPITestCase(unittest.TestCase):
             self.assertIn('params', others)
             for (k, v) in iteritems(params):
                 self.assertIn(k, others['params'], others['params'])
-                self.assertEquals(v, others['params'][k])
+                self.assertEqual(v, others['params'][k])
 
     def assertIn(self, first, second, msg=None):
         msg = msg or "{0} not in {1}".format(first, second)
@@ -170,9 +195,23 @@ class DatadogAPINoInitialization(DatadogAPITestCase):
         api._application_key = None
         api._api_host = None
         api._host_name = None
+        api._proxies = None
+
+    def setUp(self):
+        super(DatadogAPINoInitialization, self).setUp()
+        api._api_key = api._application_key = api._host_name = api._api_host = None
 
 
 class DatadogAPIWithInitialization(DatadogAPITestCase):
     def setUp(self):
         super(DatadogAPIWithInitialization, self).setUp()
         initialize(api_key=API_KEY, app_key=APP_KEY, api_host=API_HOST)
+
+    def tearDown(self):
+        super(DatadogAPIWithInitialization, self).tearDown()
+        # Restore default values
+        api._api_key = None
+        api._application_key = None
+        api._api_host = None
+        api._host_name = None
+        api._proxies = None

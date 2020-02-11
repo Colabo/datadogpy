@@ -1,5 +1,10 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import os
+import warnings
+import sys
 
 # 3p
 import argparse
@@ -17,6 +22,7 @@ from datadog.dogshell.monitor import MonitorClient
 from datadog.dogshell.screenboard import ScreenboardClient
 from datadog.dogshell.search import SearchClient
 from datadog.dogshell.service_check import ServiceCheckClient
+from datadog.dogshell.service_level_objective import ServiceLevelObjectiveClient
 from datadog.dogshell.tag import TagClient
 from datadog.dogshell.timeboard import TimeboardClient
 from datadog.dogshell.dashboard import DashboardClient
@@ -24,16 +30,21 @@ from datadog.util.config import get_version
 
 
 def main():
+    if sys.argv[0].endswith("dog"):
+        warnings.warn("dog is pending deprecation. Please use dogshell instead.", PendingDeprecationWarning)
+
     parser = argparse.ArgumentParser(description="Interact with the Datadog API",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--config', help="location of your dogrc file (default ~/.dogrc)",
                         default=os.path.expanduser('~/.dogrc'))
     parser.add_argument('--api-key', help="your API key, from "
-                        "https://app.datadoghq.com/account/settings#api",
-                        dest='api_key', default=os.environ.get('DATADOG_API_KEY'))
+                        "https://app.datadoghq.com/account/settings#api. "
+                        "You can also set the environment variables DATADOG_API_KEY or DD_API_KEY",
+                        dest='api_key', default=os.environ.get('DATADOG_API_KEY', os.environ.get('DD_API_KEY')))
     parser.add_argument('--application-key', help="your Application key, from "
-                        "https://app.datadoghq.com/account/settings#api",
-                        dest='app_key', default=os.environ.get('DATADOG_APP_KEY'))
+                        "https://app.datadoghq.com/account/settings#api. "
+                        "You can also set the environment variables DATADOG_APP_KEY or DD_APP_KEY",
+                        dest='app_key', default=os.environ.get('DATADOG_APP_KEY', os.environ.get('DD_APP_KEY')))
     parser.add_argument('--pretty', help="pretty-print output (suitable for human consumption, "
                         "less useful for scripting)", dest='format',
                         action='store_const', const='pretty')
@@ -63,6 +74,7 @@ def main():
     HostClient.setup_parser(subparsers)
     DowntimeClient.setup_parser(subparsers)
     ServiceCheckClient.setup_parser(subparsers)
+    ServiceLevelObjectiveClient.setup_parser(subparsers)
 
     args = parser.parse_args()
     config.load(args.config, args.api_key, args.app_key)

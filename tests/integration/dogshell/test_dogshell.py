@@ -1,107 +1,183 @@
-# stdlib
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 from hashlib import md5
 import json
 import os
 import random
 import re
-import socket
 import subprocess
 import time
 import tempfile
-import unittest
+import sys
+
+import pytest
 import requests
 
-# 3rd
-from nose.plugins.attrib import attr
-
-# datadog
-from datadog.dogshell.common import find_localhost
 from datadog.util.compat import is_p3k, ConfigParser
+from ..api.constants import API_KEY, APP_KEY, MONITOR_REFERENCED_IN_SLO_MESSAGE
+
+WAIT_TIME = 10
 
 
 def get_temp_file():
     """Return a (fn, fp) pair"""
     if is_p3k():
         fn = "/tmp/{0}-{1}".format(time.time(), random.random())
-        return (fn, open(fn, 'w+'))
+        return (fn, open(fn, "w+"))
     else:
         tf = tempfile.NamedTemporaryFile()
         return (tf.name, tf)
 
 
-class TestDogshell(unittest.TestCase):
-    host_name = 'test.host.dogshell5'
-    wait_time = 10
+@pytest.fixture  # (scope="module")
+def dogshell_config():
+    config = ConfigParser()
+    config.add_section("Connection")
+    config.set("Connection", "apikey", API_KEY)
+    config.set("Connection", "appkey", APP_KEY)
+    config.set("Connection", "api_host", os.environ.get("DATADOG_HOST", "https://api.datadoghq.com"))
+    return config
 
-    # Test init
-    def setUp(self):
-        # Generate a config file for the dog shell
-        self.config_fn, self.config_file = get_temp_file()
-        config = ConfigParser()
-        config.add_section('Connection')
-        config.set('Connection', 'apikey', os.environ['DATADOG_API_KEY'])
-        config.set('Connection', 'appkey', os.environ['DATADOG_APP_KEY'])
-        config.set('Connection', 'api_host', os.environ['DATADOG_HOST'])
-        config.write(self.config_file)
-        self.config_file.flush()
+
+@pytest.fixture  # (scope="module")
+def config_file(tmp_path, dogshell_config):
+    """Generate a config file for the dog shell."""
+    filename = tmp_path / ".test.dog.ini"
+    with filename.open("w") as fp:
+        dogshell_config.write(fp)
+    return str(filename)
+
+
+@pytest.fixture
+def dogshell(capsys, config_file, dog):
+    """Helper function to call the dog shell command."""
+    import click
+    from click.testing import CliRunner
+
+    runner = CliRunner(mix_stderr=False)
+
+    @click.command(context_settings={"ignore_unknown_options": True})
+    @click.argument('args', nargs=-1, type=click.UNPROCESSED)
+    def main(args):
+        from datadog.dogshell import main as run
+        orig = sys.argv
+        try:
+            sys.argv = list(args)
+            run()
+        finally:
+            sys.argv = orig
+
+    def run(args, stdin=None, check_return_code=True, use_cl_args=False):
+        cmd = ["dogshell", "--config", config_file] + args
+        if use_cl_args:
+            cmd = [
+                "dogshell",
+                "--api-key={0}".format(dog._api_key),
+                "--application-key={0}".format(dog._application_key),
+            ] + args
+
+        with capsys.disabled():
+            result = runner.invoke(main, cmd, input=stdin, prog_name=cmd[0], mix_stderr=True)
+        return_code = result.exit_code
+        out = result.stdout_bytes
+        err = result.stderr_bytes
+        if check_return_code:
+            assert return_code == 0, err
+            assert err == b""
+        return out.decode("utf-8"), err.decode("utf-8"), return_code
+    return run
+
+
+@pytest.fixture
+def dogshell_with_retry(vcr_cassette, dogshell):
+    def run(cmd, retry_limit=10, retry_condition=lambda o, r: r != 0):
+        number_of_interactions = len(vcr_cassette.data) if vcr_cassette.record_mode == "all" else -1
+
+        out, err, return_code = dogshell(cmd, check_return_code=False)
+        retry_count = 0
+        while retry_count < retry_limit and retry_condition(out, return_code):
+            time.sleep(WAIT_TIME)
+
+            if vcr_cassette.record_mode == "all":
+                # remove failed interactions
+                vcr_cassette.data = vcr_cassette.data[:number_of_interactions]
+
+            out, err, return_code = dogshell(cmd, check_return_code=False)
+            retry_count += 1
+        if retry_condition(out, return_code):
+            raise Exception(
+                "Retry limit reached for command {}:\nSTDOUT: {}\nSTDERR: {}\nSTATUS_CODE: {}".format(
+                    cmd, out, err, return_code
+                )
+            )
+        return out, err, return_code
+    return run
+
+
+@pytest.fixture
+def get_unique(freezer, vcr_cassette_name, vcr_cassette, vcr):
+    if vcr_cassette.record_mode == "all":
+        seed = int(random.random() * 100000)
+
+        with open(
+            os.path.join(
+                vcr.cassette_library_dir, vcr_cassette_name + ".seed"
+            ),
+            "w",
+        ) as f:
+            f.write(str(seed))
+    else:
+        with open(
+            os.path.join(
+                vcr.cassette_library_dir, vcr_cassette_name + ".seed"
+            ),
+            "r",
+        ) as f:
+            seed = int(f.readline().strip())
+
+    random.seed(seed)
+
+    def generate():
+        with freezer:
+            return md5(str(time.time() + random.random()).encode("utf-8")).hexdigest()
+    return generate
+
+
+class TestDogshell:
+    host_name = "test.host.dogshell5"
 
     # Tests
-    def test_config_args(self):
-        out, err, return_code = self.dogshell(["--help"], use_cl_args=True)
+    def test_config_args(self, dogshell):
+        out, err, return_code = dogshell(["--help"], use_cl_args=True)
+        assert 0 == return_code
 
-    def test_find_localhost(self):
-        # Once run
-        assert socket.getfqdn() == find_localhost()
-        # Once memoized
-        assert socket.getfqdn() == find_localhost()
-
-    def test_comment(self):
+    def test_comment(self, dogshell, dogshell_with_retry, user_handle):
         # Post a new comment
-        cmd = ["comment", "post"]
+        cmd = ["comment", "post", user_handle]
         comment_msg = "yo dudes"
         post_data = {}
-        out, err, return_code = self.dogshell(cmd, stdin=comment_msg)
+        out, _, _ = dogshell(cmd, stdin=comment_msg)
         post_data = self.parse_response(out)
-        assert 'id' in post_data, post_data
-        assert 'url' in post_data, post_data
-        assert 'message' in post_data, post_data
-        assert comment_msg in post_data['message']
+        assert "id" in post_data
+        assert "url" in post_data
+        assert comment_msg in post_data["message"]
 
         # Read that comment from its id
-        time.sleep(self.wait_time)
-        cmd = ["comment", "show", post_data['id']]
-        out, err, return_code = self.dogshell(cmd)
+        cmd = ["comment", "show", post_data["id"]]
+        out, _, _ = dogshell_with_retry(cmd)
         show_data = self.parse_response(out)
-        assert comment_msg in show_data['message']
+        assert comment_msg in show_data["message"]
 
         # Update the comment
-        cmd = ["comment", "update", post_data['id']]
+        cmd = ["comment", "update", post_data["id"], user_handle]
         new_comment = "nothing much"
-        out, err, return_code = self.dogshell(cmd, stdin=new_comment)
+        out, _, _ = dogshell(cmd, stdin=new_comment)
         update_data = self.parse_response(out)
-        self.assertEquals(update_data['id'], post_data['id'])
-        assert new_comment in update_data['message']
+        assert update_data["id"] == post_data["id"]
+        assert new_comment in update_data["message"]
 
-        # Read the updated comment
-        time.sleep(self.wait_time)
-        cmd = ["comment", "show", post_data['id']]
-        out, err, return_code = self.dogshell(cmd)
-        show_data2 = self.parse_response(out)
-        assert new_comment in show_data2['message']
-
-        # Delete the comment
-        cmd = ["comment", "delete", post_data['id']]
-        out, err, return_code = self.dogshell(cmd)
-        # self.assertEquals(out, '')
-
-        # Shouldn't get anything
-        time.sleep(self.wait_time)
-        cmd = ["comment", "show", post_data['id']]
-        out, err, return_code = self.dogshell(cmd, check_return_code=False)
-        self.assertEquals(out, '')
-        self.assertEquals(return_code, 1)
-
-    def test_event(self):
+    def test_event(self, dog, dogshell, dogshell_with_retry):
         # Post an event
         title = "Testing events from dogshell"
         body = "%%%\n*Cool!*\n%%%\n"
@@ -110,488 +186,497 @@ class TestDogshell(unittest.TestCase):
         event_id = None
 
         def match_permalink(out):
-            match = re.match(r'.*/event/event\?id=([0-9]*)', out, re.DOTALL) or \
-                re.match(r'.*/event/jump_to\?event_id=([0-9]*)', out, re.DOTALL)
+            match = re.match(r".*/event/event\?id=([0-9]*)", out, re.DOTALL) or re.match(
+                r".*/event/jump_to\?event_id=([0-9]*)", out, re.DOTALL
+            )
             if match:
                 return match.group(1)
             else:
                 return None
 
-        out, err, return_code = self.dogshell(cmd, stdin=body)
-        event_id = match_permalink(out)
-        assert event_id, out
+        out, err, return_code = dogshell(cmd, stdin=body)
 
-        # Add a bit of latency for the event to appear
-        time.sleep(self.wait_time)
+        event_id = match_permalink(out)
+        assert event_id
 
         # Retrieve the event
         cmd = ["event", "show", event_id]
-        out, err, return_code = self.dogshell(cmd)
+        out, _, _ = dogshell_with_retry(cmd)
         event_id2 = match_permalink(out)
-        self.assertEquals(event_id, event_id2)
+        assert event_id == event_id2
+
+        # Get a real time from the event
+        event = dog.Event.get(event_id)
+        start = event["event"]["date_happened"] - 30 * 60
+        end = event["event"]["date_happened"] + 1
 
         # Get a stream of events
-        cmd = ["event", "stream", "30m", "--tags", tags]
-        out, err, return_code = self.dogshell(cmd)
+        cmd = ["event", "stream", str(start), str(end), "--tags", tags]
+        out, err, return_code = dogshell(cmd)
         event_ids = (match_permalink(l) for l in out.split("\n"))
         event_ids = set([e for e in event_ids if e])
         assert event_id in event_ids
 
-    def test_metrics(self):
+    def test_metrics(self, dogshell, get_unique, dogshell_with_retry):
         # Submit a unique metric from a unique host
-        unique = self.get_unique()
-        metric = "test.dogshell.test_metric_%s" % unique
-        host = self.host_name
-        self.dogshell(["metric", "post", "--host", host, metric, "1"])
-
-        # Query for the metric, commented out because caching prevents us
-        # from verifying new metrics
-        # out, err, return_code = self.dogshell(["search", "query",
-        #   "metrics:" + metric])
-        # assert metric in out, (metric, out)
-
-        # Query for the host
-        out, err, return_code = self.dogshell(["search", "query",
-                                              "hosts:" + host])
-        # assert host in out, (host, out)
+        unique = get_unique()
+        metric = "test.dogshell.test_metric_{}".format(unique)
+        host = "{}{}".format(self.host_name, unique)
+        dogshell(["metric", "post", "--host", host, metric, "1"])
 
         # Query for the host and metric
-        out, err, return_code = self.dogshell(["search", "query", unique])
-        # assert host in out, (host, out)
-        # Caching prevents us from verifying new metrics
-        # assert metric in out, (metric, out)
+        dogshell_with_retry(
+            ["search", "query", unique], retry_condition=lambda o, r: host not in o or metric not in o
+        )
 
         # Give the host some tags
+        # The host tag association can take some time, so bump the retry limit to reduce flakiness
         tags0 = ["t0", "t1"]
-        self.dogshell(["tag", "add", host] + tags0)
+        out, _, _ = dogshell_with_retry(["tag", "add", host] + tags0, retry_limit=30)
+        for t in tags0:
+            assert t in out
 
         # Verify that that host got those tags
-        out, err, return_code = self.dogshell(["tag", "show", host])
-        for t in tags0:
-            assert t in out, (t, out)
+        dogshell_with_retry(["tag", "show", host], retry_condition=lambda o, r: "t0" not in o or "t1" not in o)
 
         # Replace the tags with a different set
         tags1 = ["t2", "t3"]
-        self.dogshell(["tag", "replace", host] + tags1)
-        out, err, return_code = self.dogshell(["tag", "show", host])
+        out, _, _ = dogshell(["tag", "replace", host] + tags1)
         for t in tags1:
-            assert t in out, (t, out)
+            assert t in out
         for t in tags0:
-            assert t not in out, (t, out)
+            assert t not in out
 
         # Remove all the tags
-        self.dogshell(["tag", "detach", host])
-        out, err, return_code = self.dogshell(["tag", "show", host])
-        self.assertEquals(out, "")
+        out, _, _ = dogshell(["tag", "detach", host])
+        assert out == ""
 
-    def test_timeboards(self):
+    def test_timeboards(self, dogshell, get_unique):
         # Create a timeboard and write it to a file
         name, temp0 = get_temp_file()
         graph = {
             "title": "test metric graph",
-            "definition":
-                {
-                    "requests": [{"q": "testing.metric.1{host:blah.host.1}"}],
-                    "viz": "timeseries",
-                }
+            "definition": {"requests": [{"q": "testing.metric.1{host:blah.host.1}"}], "viz": "timeseries"},
         }
-
-        self.dogshell(["timeboard", "new_file", name, json.dumps(graph)])
+        dogshell(["timeboard", "new_file", name, json.dumps(graph)])
         dash = json.load(temp0)
-
-        assert 'id' in dash, dash
-        assert 'title' in dash, dash
+        assert "id" in dash
+        assert "title" in dash
 
         # Update the file and push it to the server
-        unique = self.get_unique()
-        dash['title'] = 'dash title %s' % unique
+        unique = get_unique()
+        dash["title"] = "dash title {}".format(unique)
         name, temp1 = get_temp_file()
         json.dump(dash, temp1)
         temp1.flush()
-        self.dogshell(["timeboard", "push", temp1.name])
+        dogshell(["timeboard", "push", temp1.name])
 
         # Query the server to verify the change
-        out, _, _ = self.dogshell(["timeboard", "show", str(dash['id'])])
+        out, _, _ = dogshell(["timeboard", "show", str(dash["id"])])
 
         out = json.loads(out)
-        assert "dash" in out, out
-        assert "id" in out["dash"], out
-        self.assertEquals(out["dash"]["id"], dash["id"])
-        assert "title" in out["dash"]
-        self.assertEquals(out["dash"]["title"], dash["title"])
+        out["dash"]["id"] == dash["id"]
+        out["dash"]["title"] == dash["title"]
 
         new_title = "new_title"
         new_desc = "new_desc"
-        new_dash = [{
-                    "title": "blerg",
-                    "definition": {
-                        "requests": [
-                            {"q": "avg:system.load.15{web,env:prod}"}
-                        ]
-                    }
-                    }]
+        new_dash = [
+            {
+                "title": "blerg",
+                "definition": {"viz": "timeseries", "requests": [{"q": "avg:system.load.15{web,env:prod}"}]},
+            }
+        ]
 
         # Update a dash directly on the server
-        self.dogshell(["timeboard", "update", str(dash["id"]), new_title, new_desc],
-                      stdin=json.dumps(new_dash))
-
-        # Query the server to verify the change
-        out, _, _ = self.dogshell(["timeboard", "show", str(dash["id"])])
+        out, _, _ = dogshell(
+            ["timeboard", "update", str(dash["id"]), new_title, new_desc], stdin=json.dumps(new_dash)
+        )
         out = json.loads(out)
-        assert "dash" in out, out
-        assert "id" in out["dash"], out
-        self.assertEquals(out["dash"]["id"], dash["id"])
-        assert "title" in out["dash"], out
-        self.assertEquals(out["dash"]["title"], new_title)
-        assert "description" in out["dash"], out
-        self.assertEquals(out["dash"]["description"], new_desc)
-        assert "graphs" in out["dash"], out
-        self.assertEquals(out["dash"]["graphs"], new_dash)
+        # Template variables are empty, lets remove them because the `pull` command won't show them
+        out["dash"].pop("template_variables", None)
+        assert out["dash"]["id"] == dash["id"]
+        assert out["dash"]["title"] == new_title
+        assert out["dash"]["description"] == new_desc
+        assert out["dash"]["graphs"] == new_dash
 
         # Pull the updated dash to disk
         fd, updated_file = tempfile.mkstemp()
         try:
-            self.dogshell(["timeboard", "pull", str(dash["id"]), updated_file])
+            dogshell(["timeboard", "pull", str(dash["id"]), updated_file])
             updated_dash = {}
             with open(updated_file) as f:
                 updated_dash = json.load(f)
-            assert "dash" in out
-            self.assertEquals(out["dash"], updated_dash)
+            assert out["dash"] == updated_dash
         finally:
             os.unlink(updated_file)
 
         # Delete the dash
-        self.dogshell(["timeboard", "delete", str(dash["id"])])
+        dogshell(["timeboard", "delete", str(dash["id"])])
 
         # Verify that it's not on the server anymore
-        out, err, return_code = self.dogshell(["dashboard", "show", str(dash['id'])],
-                                              check_return_code=False)
-        self.assertNotEquals(return_code, 0)
+        out, _, return_code = dogshell(["dashboard", "show", str(dash["id"])], check_return_code=False)
+        assert return_code != 0
 
-    @attr('screenboard')
-    def test_screenboards(self):
+    def test_screenboards(self, dogshell, get_unique):
         # Create a screenboard and write it to a file
         name, temp0 = get_temp_file()
         graph = {
             "title": "test metric graph",
-            "definition":
-                {
-                    "requests": [{"q": "testing.metric.1{host:blah.host.1}"}],
-                    "viz": "timeseries",
-                }
+            "definition": {"requests": [{"q": "testing.metric.1{host:blah.host.1}"}], "viz": "timeseries"},
         }
-        self.dogshell(["screenboard", "new_file", name, json.dumps(graph)])
+        dogshell(["screenboard", "new_file", name, json.dumps(graph)])
         screenboard = json.load(temp0)
 
-        assert 'id' in screenboard, screenboard
-        assert 'title' in screenboard, screenboard
+        assert "id" in screenboard
+        assert "board_title" in screenboard
 
         # Update the file and push it to the server
-        unique = self.get_unique()
-        screenboard['title'] = 'screenboard title %s' % unique
+        unique = get_unique()
+        screenboard["title"] = "screenboard title {}".format(unique)
         name, temp1 = get_temp_file()
         json.dump(screenboard, temp1)
         temp1.flush()
-        self.dogshell(["screenboard", "push", temp1.name])
+        dogshell(["screenboard", "push", temp1.name])
 
         # Query the server to verify the change
-        out, _, _ = self.dogshell(["screenboard", "show", str(screenboard['id'])])
+        out, _, _ = dogshell(["screenboard", "show", str(screenboard["id"])])
 
         out = json.loads(out)
-        assert "id" in out, out
-        self.assertEquals(out["id"], screenboard["id"])
-        assert "title" in out, out
-        self.assertEquals(out["title"], screenboard["title"])
+        assert out["id"] == screenboard["id"]
+        assert out["title"] == screenboard["title"]
 
         new_title = "new_title"
         new_desc = "new_desc"
-        new_screen = [{
-            "title": "blerg",
-            "definition": {
-                "requests": [
-                    {"q": "avg:system.load.15{web,env:prod}"}
-                ]
-            }
-        }]
+        new_screen = [{"title": "blerg", "definition": {"requests": [{"q": "avg:system.load.15{web,env:prod}"}]}}]
 
         # Update a screenboard directly on the server
-        self.dogshell(["screenboard", "update", str(screenboard["id"]), new_title, new_desc],
-                      stdin=json.dumps(new_screen))
+        dogshell(
+            ["screenboard", "update", str(screenboard["id"]), new_title, new_desc], stdin=json.dumps(new_screen)
+        )
         # Query the server to verify the change
-        out, _, _ = self.dogshell(["screenboard", "show", str(screenboard["id"])])
+        out, _, _ = dogshell(["screenboard", "show", str(screenboard["id"])])
         out = json.loads(out)
-        assert "id" in out, out
-        self.assertEquals(out["id"], screenboard["id"])
-        assert "title" in out, out
-        self.assertEquals(out["title"], new_title)
-        assert "description" in out, out
-        self.assertEquals(out["description"], new_desc)
-        assert "graphs" in out, out
-        self.assertEquals(out["graphs"], new_screen)
+        assert out["id"] == screenboard["id"]
+        assert out["board_title"] == new_title
+        assert out["description"] == new_desc
+        assert out["widgets"] == new_screen
 
         # Pull the updated screenboard to disk
         fd, updated_file = tempfile.mkstemp()
         try:
-            self.dogshell(["screenboard", "pull", str(screenboard["id"]), updated_file])
+            dogshell(["screenboard", "pull", str(screenboard["id"]), updated_file])
             updated_screenboard = {}
             with open(updated_file) as f:
                 updated_screenboard = json.load(f)
-            self.assertEquals(out, updated_screenboard)
+            assert out == updated_screenboard
         finally:
             os.unlink(updated_file)
 
         # Share the screenboard
-        out, _, _ = self.dogshell(["screenboard", "share", str(screenboard["id"])])
+        out, _, _ = dogshell(["screenboard", "share", str(screenboard["id"])])
         out = json.loads(out)
-        assert out['board_id'] == screenboard['id']
+        assert out["board_id"] == screenboard["id"]
         # Verify it's actually shared
-        public_url = out['public_url']
+        public_url = out["public_url"]
         response = requests.get(public_url)
         assert response.status_code == 200
 
         # Revoke the screenboard and verify it's actually revoked
-        self.dogshell(["screenboard", "revoke", str(screenboard["id"])])
+        dogshell(["screenboard", "revoke", str(screenboard["id"])])
         response = requests.get(public_url)
         assert response.status_code == 404
 
         # Delete the screenboard
-        self.dogshell(["screenboard", "delete", str(screenboard["id"])])
+        dogshell(["screenboard", "delete", str(screenboard["id"])])
 
         # Verify that it's not on the server anymore
-        out, err, return_code = self.dogshell(["screenboard", "show", str(screenboard['id'])],
-                                              check_return_code=False)
-        self.assertNotEquals(return_code, 0)
+        _, _, return_code = dogshell(["screenboard", "show", str(screenboard["id"])], check_return_code=False)
+        assert return_code != 0
 
     # Test monitors
-
-    def test_monitors(self):
+    @pytest.mark.admin_needed
+    def test_monitors(self, dogshell):
         # Create a monitor
         query = "avg(last_1h):sum:system.net.bytes_rcvd{*} by {host} > 100"
         type_alert = "metric alert"
-        out, err, return_code = self.dogshell(["monitor", "post", type_alert, query])
+        out, _, _ = dogshell(["monitor", "post", type_alert, query])
 
-        assert "id" in out, out
-        assert "query" in out, out
-        assert "type" in out, out
         out = json.loads(out)
-        self.assertEquals(out["query"], query)
-        self.assertEquals(out["type"], type_alert)
+        assert out["query"] == query
+        assert out["type"] == type_alert
         monitor_id = str(out["id"])
+        monitor_name = out["name"]
 
-        out, err, return_code = self.dogshell(["monitor", "show", monitor_id])
+        out, _, _ = dogshell(["monitor", "show", monitor_id])
         out = json.loads(out)
-        self.assertEquals(out["query"], query)
-        self.assertEquals(out['options']['notify_no_data'], False)
+        assert out["query"] == query
+        assert out["options"]["notify_no_data"] is False
 
         # Update options
-        options = {
-            "notify_no_data": True,
-            "no_data_timeframe": 20
-        }
+        options = {"notify_no_data": True, "no_data_timeframe": 20}
+        out, err, return_code = dogshell(
+            ["monitor", "update", monitor_id, type_alert, query, "--options", json.dumps(options)],
+            check_return_code=False
+        )
 
-        out, err, return_code = self.dogshell(
-            ["monitor", "update", monitor_id, type_alert,
-             query, "--options", json.dumps(options)])
-
-        assert "id" in out, out
-        assert "options" in out, out
         out = json.loads(out)
-        self.assertEquals(out["query"], query)
-        self.assertEquals(out['options']['notify_no_data'], options["notify_no_data"])
-        self.assertEquals(out['options']['no_data_timeframe'], options["no_data_timeframe"])
+        assert query in out["query"]
+        assert out["options"]["notify_no_data"] == options["notify_no_data"]
+        assert out["options"]["no_data_timeframe"] == options["no_data_timeframe"]
+        assert 'DEPRECATION' in err
+        assert return_code == 0
+
+        # Update message only
+        updated_message = "monitor updated"
+        current_options = out["options"]
+        out, err, return_code = dogshell(
+            ["monitor", "update", monitor_id, "--message", updated_message]
+        )
+
+        out = json.loads(out)
+        assert updated_message == out["message"]
+        assert query == out["query"]
+        assert monitor_name == out["name"]
+        assert current_options == out["options"]
+
+        # Updating optional type and query
+        updated_query = "avg(last_15m):sum:system.net.bytes_rcvd{*} by {env} > 222"
+        updated_type = "query alert"
+
+        out, err, return_code = dogshell(
+            ["monitor", "update", monitor_id, "--type", updated_type, "--query", updated_query]
+        )
+
+        out = json.loads(out)
+        assert updated_query in out["query"]
+        assert updated_type in out["type"]
+        assert updated_message in out["message"] # updated_message updated in previous step
+        assert monitor_name in out["name"]
+        assert current_options == out["options"]
 
         # Mute monitor
-        out, err, return_code = self.dogshell(["monitor", "mute", str(out["id"])])
-        assert "id" in out, out
+        out, _, _ = dogshell(["monitor", "mute", str(out["id"])])
         out = json.loads(out)
-        self.assertEquals(str(out["id"]), monitor_id)
-        self.assertEquals(out["options"]["silenced"], {"*": None})
+        assert str(out["id"]) == monitor_id
+        assert out["options"]["silenced"] == {"*": None}
 
         # Unmute monitor
-        out, err, return_code = self.dogshell(["monitor", "unmute", monitor_id], check_return_code=False)
+        out, _, _ = dogshell(["monitor", "unmute", "--all_scopes", monitor_id], check_return_code=False)
         out = json.loads(out)
-        self.assertEquals(str(out["id"]), monitor_id)
-        self.assertEquals(out["options"]["silenced"], {})
+        assert str(out["id"]) == monitor_id
+        assert out["options"]["silenced"] == {}
 
         # Unmute all scopes of a monitor
-        options = {
-            "silenced": {"host:abcd1234": None, "host:abcd1235": None}
-        }
+        options = {"silenced": {"host:abcd1234": None, "host:abcd1235": None}}
 
-        out, err, return_code = self.dogshell(
-            ["monitor", "update", monitor_id, type_alert,
-             query, "--options", json.dumps(options)])
+        out, err, return_code = dogshell(
+            ["monitor", "update", monitor_id, type_alert, query, "--options", json.dumps(options)],
+            check_return_code=False
+        )
 
-        assert "id" in out, out
-        assert "options" in out, out
         out = json.loads(out)
-        self.assertEquals(out["query"], query)
-        self.assertEquals(out["options"]["silenced"], {"host:abcd1234": None, "host:abcd1235": None})
+        assert out["query"] == query
+        assert out["options"]["silenced"] == {"host:abcd1234": None, "host:abcd1235": None}
+        assert "DEPRECATION" in err
+        assert return_code == 0
 
-        out, err, return_code = self.dogshell(["monitor", "unmute", str(out["id"]),
-                                                "--all_scopes"])
-        assert "id" in out, out
+        out, _, _ = dogshell(["monitor", "unmute", str(out["id"]), "--all_scopes"])
         out = json.loads(out)
-        self.assertEquals(str(out["id"]), monitor_id)
-        self.assertEquals(out["options"]["silenced"], {})
+        assert str(out["id"]) == monitor_id
+        assert out["options"]["silenced"] == {}
+
+        # Test can_delete monitor
+        monitor_ids = [int(monitor_id)]
+        str_monitor_ids = str(monitor_id)
+        out, _, _ = dogshell(["monitor", "can_delete", str_monitor_ids])
+        out = json.loads(out)
+        assert out["data"]["ok"] == monitor_ids
+        assert out["errors"] is None
+
+        # Create a monitor-based SLO
+        out, _, _ = dogshell(
+            [
+                "service_level_objective",
+                "create",
+                "--type",
+                "monitor",
+                "--monitor_ids",
+                str_monitor_ids,
+                "--name",
+                "test_slo",
+                "--thresholds",
+                "7d:90",
+            ]
+        )
+        out = json.loads(out)
+        slo_id = out["data"][0]["id"]
+
+        # Test can_delete monitor
+        out, _, _ = dogshell(["monitor", "can_delete", str_monitor_ids])
+        out = json.loads(out)
+        assert out["data"]["ok"] == []
+        # TODO update the error message template
+        # assert out["errors"] == {
+        #     str(monitor_id): [MONITOR_REFERENCED_IN_SLO_MESSAGE.format(monitor_id, slo_id)]
+        # }
+
+        # Delete a service_level_objective
+        _, _, _ = dogshell(["service_level_objective", "delete", slo_id])
+
+        # Test can_delete monitor
+        out, _, _ = dogshell(["monitor", "can_delete", str_monitor_ids])
+        out = json.loads(out)
+        assert out["data"]["ok"] == monitor_ids
+        assert out["errors"] is None
 
         # Delete a monitor
-        self.dogshell(["monitor", "delete", monitor_id])
+        dogshell(["monitor", "delete", monitor_id])
         # Verify that it's not on the server anymore
-        out, err, return_code = self.dogshell(["monitor", "show", monitor_id], check_return_code=False)
-        self.assertNotEquals(return_code, 0)
+        _, _, return_code = dogshell(["monitor", "show", monitor_id], check_return_code=False)
+        assert return_code != 0
 
         # Mute all
-        out, err, return_code = self.dogshell(["monitor", "mute_all"])
-        assert "id" in out, out
-        assert "active" in out, out
+        out, _, _ = dogshell(["monitor", "mute_all"])
         out = json.loads(out)
-        self.assertEquals(out["active"], True)
+        assert out["active"] is True
 
         # Unmute all
-        self.dogshell(["monitor", "unmute_all"])
+        dogshell(["monitor", "unmute_all"])
         # Retry unmuting all -> should raise an error this time
-        out, err, return_code = self.dogshell(["monitor", "unmute_all"], check_return_code=False)
-        self.assertNotEquals(return_code, 0)
+        _, _, return_code = dogshell(["monitor", "unmute_all"], check_return_code=False)
+        assert return_code != 0
 
-    @attr('host')
-    def test_host_muting(self):
-        hostname = "my.test.host"
+        # Test validate monitor
+        monitor_type = "metric alert"
+        valid_options = '{"thresholds": {"critical": 200.0}}'
+        invalid_options = '{"thresholds": {"critical": 90.0}}'
+
+        # Check with an invalid query.
+        invalid_query = "THIS IS A BAD QUERY"
+        out, _, _ = dogshell(["monitor", "validate", monitor_type, invalid_query, "--options", valid_options])
+        out = json.loads(out)
+        assert out == {"errors": ["The value provided for parameter 'query' is invalid"]}
+
+        # Check with a valid query, invalid options.
+        valid_query = "avg(last_1h):sum:system.net.bytes_rcvd{host:host0} > 200"
+        out, _, _ = dogshell(["monitor", "validate", monitor_type, valid_query, "--options", invalid_options])
+        out = json.loads(out)
+        assert out == {"errors": ["Alert threshold (90.0) does not match that used in the query (200.0)."]}
+
+        # Check with a valid query, valid options.
+        out, _, _ = dogshell(["monitor", "validate", monitor_type, valid_query, "--options", valid_options])
+        out = json.loads(out)
+        assert out == {}
+
+    def test_host_muting(self, freezer, dogshell, get_unique, dogshell_with_retry):
+        # Submit a metric to create a host
+        hostname = "my.test.host{}".format(get_unique())
+        dogshell(["metric", "post", "--host", hostname, "metric", "1"])
+
+        # Wait for the host to appear
+        dogshell_with_retry(["tag", "show", hostname])
+
         message = "Muting this host for a test."
-        end = int(time.time()) + 60 * 60
-
-        # Reset test
-        self.dogshell(["host", "unmute", hostname], check_return_code=False)
+        with freezer:
+            end = int(time.time()) + 60 * 60
 
         # Mute a host
-        out, err, return_code = self.dogshell(
-            ["host", "mute", hostname, "--message", message, "--end", str(end)])
+        out, _, _ = dogshell(["host", "mute", hostname, "--message", message, "--end", str(end)])
         out = json.loads(out)
-        assert "action" in out, out
-        assert "hostname" in out, out
-        assert "message" in out, out
-        assert "end" in out, out
-        self.assertEquals(out['action'], "Muted")
-        self.assertEquals(out['hostname'], hostname)
-        self.assertEquals(out['message'], message)
-        self.assertEquals(out['end'], end)
+        assert out["action"] == "Muted"
+        assert out["hostname"] == hostname
+        assert out["message"] == message
+        assert out["end"] == end
 
         # We shouldn't be able to mute a host that's already muted, unless we include
         # the override param.
         end2 = end + 60 * 15
 
-        out, err, return_code = self.dogshell(
-            ["host", "mute", hostname, "--end", str(end2)], check_return_code=False)
-        assert err
+        _, _, return_code = dogshell_with_retry(
+            ["host", "mute", hostname, "--end", str(end2)], retry_condition=lambda o, r: r == 0
+        )
+        assert return_code != 0
 
-        out, err, return_code = self.dogshell(
-            ["host", "mute", hostname,  "--end", str(end2), "--override"])
+        out, _, _ = dogshell(["host", "mute", hostname, "--end", str(end2), "--override"])
         out = json.loads(out)
-        assert "action" in out, out
-        assert "hostname" in out, out
-        assert "end" in out, out
-        self.assertEquals(out['action'], "Muted")
-        self.assertEquals(out['hostname'], hostname)
-        self.assertEquals(out['end'], end2)
+        assert out["action"] == "Muted"
+        assert out["hostname"] == hostname
+        assert out["end"] == end2
 
         # Unmute a host
-        out, err, return_code = self.dogshell(["host", "unmute", hostname])
+        out, _, _ = dogshell(["host", "unmute", hostname])
         out = json.loads(out)
-        assert "action" in out, out
-        assert "hostname" in out, out
-        self.assertEquals(out['action'], "Unmuted")
-        self.assertEquals(out['hostname'], hostname)
+        assert out["action"] == "Unmuted"
+        assert out["hostname"] == hostname
 
-    def test_downtime_schedule(self):
+    def test_downtime_schedule(self, freezer, dogshell):
         # Schedule a downtime
         scope = "env:staging"
-        out, err, return_code = self.dogshell(["downtime", "post", scope,
-                                              str(int(time.time()))])
-        assert "id" in out, out
-        assert "scope" in out, out
-        assert "disabled" in out, out
+        with freezer:
+            start = str(int(time.time()))
+        out, _, _ = dogshell(["downtime", "post", scope, start])
         out = json.loads(out)
-        self.assertEquals(out["scope"][0], scope)
-        self.assertEquals(out["disabled"], False)
+        assert out["scope"][0] == scope
+        assert out["disabled"] is False
         downtime_id = str(out["id"])
 
         # Get downtime
-        out, err, return_code = self.dogshell(["downtime", "show",
-                                              downtime_id])
-        assert "id" in out, out
-        assert "scope" in out, out
+        out, _, _ = dogshell(["downtime", "show", downtime_id])
         out = json.loads(out)
-        self.assertEquals(out["scope"][0], scope)
-        self.assertEquals(out["disabled"], False)
+        assert out["scope"][0] == scope
+        assert out["disabled"] is False
 
         # Update downtime
         message = "Doing some testing on staging."
-        end = int(time.time()) + 60000
-        out, err, return_code = self.dogshell(["downtime", "update",
-                                              downtime_id,
-                                              "--scope", scope, "--end",
-                                               str(end), "--message", message])
-        assert "end" in out, out
-        assert "message" in out, out
-        assert "disabled" in out, out
+        with freezer:
+            end = int(time.time()) + 60000
+        out, _, _ = dogshell(
+            ["downtime", "update", downtime_id, "--scope", scope, "--end", str(end), "--message", message]
+        )
         out = json.loads(out)
-        self.assertEquals(out["end"], end)
-        self.assertEquals(out["message"], message)
-        self.assertEquals(out["disabled"], False)
+        assert out["end"] == end
+        assert out["message"] == message
+        assert out["disabled"] is False
 
         # Cancel downtime
-        self.dogshell(["downtime", "delete", downtime_id])
+        dogshell(["downtime", "delete", downtime_id])
 
         # Get downtime and check if it is cancelled
-        out, err, return_code = self.dogshell(["downtime", "show", downtime_id])
-        assert "id" in out, out
-        assert "scope" in out, out
+        out, _, _ = dogshell(["downtime", "show", downtime_id])
         out = json.loads(out)
-        self.assertEquals(out["scope"][0], scope)
-        self.assertEquals(out["disabled"], True)
+        assert out["scope"][0] == scope
+        assert out["disabled"] is True
 
-    def test_service_check(self):
-        out, err, return_code = self.dogshell(["service_check", "check", "check_pg",
-                                              'host0', "1"])
-        assert "status" in out, out
+    def test_downtime_cancel_by_scope(self, dogshell):
+        # Schedule a downtime
+        scope = "env:staging"
+        out, _, _ = dogshell(["downtime", "post", scope, str(int(time.time()))])
         out = json.loads(out)
-        self.assertEquals(out["status"], 'ok')
+        assert out["scope"][0] == scope
+        assert out["disabled"] is False
+        downtime_id = str(out["id"])
 
-    # Test helpers
-    def dogshell(self, args, stdin=None, check_return_code=True, use_cl_args=False):
-        """ Helper function to call the dog shell command
-        """
-        cmd = ["dog", "--config", self.config_file.name] + args
-        if use_cl_args:
-            cmd = ["dog",
-                   "--api-key={0}".format(os.environ["DATADOG_API_KEY"]),
-                   "--application-key={0}".format(os.environ["DATADOG_APP_KEY"])] + args
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, stdin=subprocess.PIPE)
-        if stdin:
-            out, err = proc.communicate(stdin.encode("utf-8"))
-        else:
-            out, err = proc.communicate()
-        proc.wait()
-        return_code = proc.returncode
-        if check_return_code:
-            self.assertEquals(return_code, 0, err)
-            self.assertEquals(err, b'')
-        return out.decode('utf-8'), err.decode('utf-8'), return_code
+        # Cancel the downtime by scope
+        dogshell(["downtime", "cancel_by_scope", scope])
 
-    def get_unique(self):
-        return md5(str(time.time() + random.random()).encode('utf-8')).hexdigest()
+        # Get downtime and check if it is cancelled
+        out, _, _ = dogshell(["downtime", "show", downtime_id])
+        out = json.loads(out)
+        assert out["scope"][0] == scope
+        assert out["disabled"] is True
+
+    def test_service_check(self, dogshell):
+        out, _, _ = dogshell(["service_check", "check", "check_pg", "host0", "1"])
+        out = json.loads(out)
+        assert out["status"], "ok"
 
     def parse_response(self, out):
         data = {}
-        for line in out.split('\n'):
-            parts = re.split('\s+', str(line).strip())
+        for line in out.split("\n"):
+            parts = re.split(r"\s+", str(line).strip())
             key = parts[0]
             # Could potentially have errors with other whitespace
             val = " ".join(parts[1:])
             if key:
                 data[key] = val
         return data
-
-if __name__ == '__main__':
-    unittest.main()

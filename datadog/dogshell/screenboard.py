@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import argparse
 import json
@@ -107,10 +110,7 @@ class ScreenboardClient(object):
     def _push(cls, args):
         api._timeout = args.timeout
         for f in args.file:
-            try:
-                screen_obj = json.load(f)
-            except Exception as err:
-                raise Exception("Could not parse {0}: {1}".format(f.name, err))
+            screen_obj = json.load(f)
 
             if args.append_auto_text:
                 datetime_str = datetime.now().strftime('%x %X')
@@ -172,10 +172,7 @@ class ScreenboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
+        graphs = json.loads(graphs)
         res = api.Screenboard.create(
             title=args.title, description=args.description, graphs=[graphs],
             template_variables=args.template_variables, width=args.width, height=args.height)
@@ -193,14 +190,11 @@ class ScreenboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
+        graphs = json.loads(graphs)
 
         res = api.Screenboard.update(
-            args.screenboard_id, title=args.title, description=args.description,
-            graphs=graphs, template_variables=args.template_variables,
+            args.screenboard_id, board_title=args.title, description=args.description,
+            widgets=graphs, template_variables=args.template_variables,
             width=args.width, height=args.height)
         report_warnings(res)
         report_errors(res)
@@ -269,13 +263,10 @@ class ScreenboardClient(object):
         graphs = args.graphs
         if args.graphs is None:
             graphs = sys.stdin.read()
-        try:
-            graphs = json.loads(graphs)
-        except:
-            raise Exception('bad json parameter')
-        res = api.Screenboard.create(title=args.filename,
+        graphs = json.loads(graphs)
+        res = api.Screenboard.create(board_title=args.filename,
                                      description="Description for {0}".format(args.filename),
-                                     graphs=[graphs])
+                                     widgets=[graphs])
         report_warnings(res)
         report_errors(res)
 

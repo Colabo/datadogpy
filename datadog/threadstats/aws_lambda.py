@@ -1,10 +1,14 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 from datadog.threadstats import ThreadStats
 from threading import Lock, Thread
 from datadog import api
 import os
-
+import warnings
 
 """
+DEPRECATED use datadog-lambda package instead https://git.io/fjy8o
 Usage:
 
 from datadog import datadog_lambda_wrapper, lambda_metric
@@ -16,7 +20,7 @@ def my_lambda_handle(event, context):
 
 
 class _LambdaDecorator(object):
-    """ Decorator to automatically init & flush metrics, created for Lambda functions"""
+    """ DEPRECATED Decorator to automatically init & flush metrics, created for Lambda functions"""
 
     # Number of opened wrappers, flush when 0
     _counter = 0
@@ -29,10 +33,11 @@ class _LambdaDecorator(object):
 
     @classmethod
     def _enter(cls):
+
         with cls._counter_lock:
             if not cls._was_initialized:
                 cls._was_initialized = True
-                api._api_key = os.environ.get('DATADOG_API_KEY')
+                api._api_key = os.environ.get('DATADOG_API_KEY', os.environ.get('DD_API_KEY'))
                 api._api_host = os.environ.get('DATADOG_HOST', 'https://api.datadoghq.com')
 
                 # Async initialization of the TLS connection with our endpoints
@@ -61,10 +66,12 @@ class _LambdaDecorator(object):
                     _lambda_stats.flush(float("inf"))
 
     def __call__(self, *args, **kw):
+        warnings.warn("datadog_lambda_wrapper() is relocated to https://git.io/fjy8o", DeprecationWarning)
         _LambdaDecorator._enter()
-        result = self.func(*args, **kw)
-        _LambdaDecorator._close()
-        return result
+        try:
+            return self.func(*args, **kw)
+        finally:
+            _LambdaDecorator._close()
 
 
 _lambda_stats = ThreadStats()

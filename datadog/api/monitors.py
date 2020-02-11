@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 from datadog.api.resources import GetableAPIResource, CreateableAPIResource, \
     UpdatableAPIResource, ListableAPIResource, DeletableAPIResource, \
     ActionAPIResource
@@ -122,3 +125,21 @@ class Monitor(GetableAPIResource, CreateableAPIResource, UpdatableAPIResource,
         :returns: Dictionary representing the API's JSON response
         """
         return super(Monitor, cls)._trigger_class_action('GET', 'groups/search', params=params)
+
+    @classmethod
+    def can_delete(cls, **params):
+        """
+        Checks if the monitors corresponding to the monitor ids can be deleted.
+
+        :returns: Dictionary representing the API's JSON response
+        """
+        return super(Monitor, cls)._trigger_class_action('GET', 'can_delete', params=params)
+
+    @classmethod
+    def validate(cls, **body):
+        """
+        Checks if the monitors definition is valid.
+
+        :returns: Dictionary representing the API's JSON response
+        """
+        return super(Monitor, cls)._trigger_class_action('POST', 'validate', **body)

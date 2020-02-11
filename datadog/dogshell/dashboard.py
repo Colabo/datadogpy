@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 import sys
@@ -25,8 +28,7 @@ class DashboardClient(object):
         post_parser.add_argument('title', help="title for the new dashboard")
         post_parser.add_argument('widgets', help="widget definitions as a JSON string. If unset,"
                                  " reads from stdin.", nargs="?")
-        # for now, only "ordered" layout - current timeboard layout - is supported.
-        post_parser.add_argument('layout_type', choices=['ordered'],
+        post_parser.add_argument('layout_type', choices=['ordered', 'free'],
                                  help="Layout type of the dashboard.")
         # Optional arguments:
         post_parser.add_argument('--description', help="Short description of the dashboard")
@@ -49,8 +51,7 @@ class DashboardClient(object):
         update_parser.add_argument('title', help="New title for the dashboard")
         update_parser.add_argument('widgets', help="Widget definitions as a JSON string."
                                    " If unset, reads from stdin", nargs="?")
-        # for now, only "ordered" layout - current timeboard layout - is supported.
-        update_parser.add_argument('layout_type', choices=['ordered'],
+        update_parser.add_argument('layout_type', choices=['ordered', 'free'],
                                    help="Layout type of the dashboard.")
         # Optional arguments:
         update_parser.add_argument('--description', help="Short description of the dashboard")
@@ -81,10 +82,7 @@ class DashboardClient(object):
         widgets = args.widgets
         if args.widgets is None:
             widgets = sys.stdin.read()
-        try:
-            widgets = json.loads(widgets)
-        except:
-            raise Exception('bad json parameter')
+        widgets = json.loads(widgets)
 
         # Required arguments
         payload = {
@@ -117,10 +115,7 @@ class DashboardClient(object):
         widgets = args.widgets
         if args.widgets is None:
             widgets = sys.stdin.read()
-        try:
-            widgets = json.loads(widgets)
-        except:
-            raise Exception('bad json parameter')
+        widgets = json.loads(widgets)
 
         # Required arguments
         payload = {

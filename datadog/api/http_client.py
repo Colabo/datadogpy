@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 """
 Available HTTP Client for Datadog API client.
 
@@ -23,7 +26,7 @@ except ImportError:
     urlfetch, urlfetch_errors = None, None
 
 # datadog
-from datadog.api.exceptions import ClientError, HTTPError, HttpTimeout
+from datadog.api.exceptions import ProxyError, ClientError, HTTPError, HttpTimeout
 
 
 log = logging.getLogger('datadog.api')
@@ -85,17 +88,19 @@ class RequestClient(HTTPClient):
 
             result.raise_for_status()
 
+        except requests.exceptions.ProxyError as e:
+            raise _remove_context(ProxyError(method, url, e))
         except requests.ConnectionError as e:
             raise _remove_context(ClientError(method, url, e))
         except requests.exceptions.Timeout:
             raise _remove_context(HttpTimeout(method, url, timeout))
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code in (400, 403, 404, 409):
+            if e.response.status_code in (400, 401, 403, 404, 409, 429):
                 # This gets caught afterwards and raises an ApiError exception
                 pass
             else:
                 raise _remove_context(HTTPError(e.response.status_code, result.reason))
-        except TypeError as e:
+        except TypeError:
             raise TypeError(
                 u"Your installed version of `requests` library seems not compatible with"
                 u"Datadog's usage. We recommand upgrading it ('pip install -U requests')."
@@ -156,7 +161,7 @@ class URLFetchClient(HTTPClient):
         status_code = result.status_code
 
         if (status_code / 100) != 2:
-            if status_code in (400, 403, 404, 409):
+            if status_code in (400, 401, 403, 404, 409, 429):
                 pass
             else:
                 raise HTTPError(status_code)

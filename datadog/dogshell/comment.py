@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 import sys
@@ -17,24 +20,21 @@ class CommentClient(object):
         verb_parsers.required = True
 
         post_parser = verb_parsers.add_parser('post', help="Post comments.")
-        post_parser.add_argument('--handle', help="handle to post as. if unset, posts as the owner"
-                                 " of the application key used to authenticate")
+        post_parser.add_argument('handle', help="handle to post as.")
         post_parser.add_argument('comment', help="comment message to post. if unset,"
                                  " reads from stdin.", nargs='?')
         post_parser.set_defaults(func=cls._post)
 
         update_parser = verb_parsers.add_parser('update', help="Update existing comments.")
         update_parser.add_argument('comment_id', help="comment to update (by id)")
-        update_parser.add_argument('--handle', help="handle to post as. if unset, posts"
-                                   " as the owner of the application key used to authenticate")
+        update_parser.add_argument('handle', help="handle to post as.")
         update_parser.add_argument('comment', help="comment message to post."
                                    " if unset, reads from stdin.", nargs="?")
         update_parser.set_defaults(func=cls._update)
 
         reply_parser = verb_parsers.add_parser('reply', help="Reply to existing comments.")
         reply_parser.add_argument('comment_id', help="comment to reply to (by id)")
-        reply_parser.add_argument('--handle', help="handle to post as. if unset, "
-                                  "posts as the owner of the application key used to authenticate")
+        reply_parser.add_argument('handle', help="handle to post as.")
         reply_parser.add_argument('comment', help="comment message to post."
                                   " if unset, reads from stdin.", nargs="?")
         reply_parser.set_defaults(func=cls._reply)
@@ -42,10 +42,6 @@ class CommentClient(object):
         show_parser = verb_parsers.add_parser('show', help="Show comment details.")
         show_parser.add_argument('comment_id', help="comment to show")
         show_parser.set_defaults(func=cls._show)
-
-        delete_parser = verb_parsers.add_parser('delete', help="Delete comments.")
-        delete_parser.add_argument('comment_id', help="comment to delete (by id)")
-        delete_parser.set_defaults(func=cls._delete)
 
     @classmethod
     def _post(cls, args):
@@ -158,12 +154,3 @@ class CommentClient(object):
             print('url\t\t' + res['event']['url'])
             print('resource\t' + res['event']['resource'])
             print('message\t\t' + res['event']['text'].__repr__())
-
-    @classmethod
-    def _delete(cls, args):
-        api._timeout = args.timeout
-        id = args.comment_id
-        res = api.Comment.delete(id)
-        if res is not None:
-            report_warnings(res)
-            report_errors(res)
