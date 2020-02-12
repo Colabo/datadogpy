@@ -148,7 +148,8 @@ class APIClient(object):
             # Process the body, if necessary
             if isinstance(body, dict):
                 body = json.dumps(body, sort_keys=cls._sort_keys)
-                headers['Content-Type'] = 'application/json'
+                headers = {'Content-Type': 'application/json',
+                           'Content-Encoding': 'deflate'}
 
             if compress_payload:
                 body = zlib.compress(body.encode("utf-8"))
