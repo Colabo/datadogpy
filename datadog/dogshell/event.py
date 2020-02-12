@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import datetime
 import time
@@ -76,7 +79,8 @@ class EventClient(object):
                                  " when the event occurred. if unset defaults to the current time.")
         post_parser.add_argument('--handle', help="user to post as. if unset, submits "
                                  "as the generic API user.")
-        post_parser.add_argument('--priority', help='"normal" or "low". defaults to "normal"')
+        post_parser.add_argument('--priority', help='"normal" or "low". defaults to "normal"',
+                                 default='normal')
         post_parser.add_argument('--related_event_id', help="event to post as a child of."
                                  " if unset, posts a top-level event")
         post_parser.add_argument('--tags', help="comma separated list of tags")

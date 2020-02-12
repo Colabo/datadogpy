@@ -1,4 +1,8 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
+import argparse
 import json
 
 # 3p
@@ -6,7 +10,7 @@ from datadog.util.format import pretty_json
 
 # datadog
 from datadog import api
-from datadog.dogshell.common import report_errors, report_warnings
+from datadog.dogshell.common import report_errors, report_warnings, print_err
 
 
 class MonitorClient(object):
@@ -27,20 +31,46 @@ class MonitorClient(object):
         post_parser.add_argument('--name', help="name of the alert", default=None)
         post_parser.add_argument('--message', help="message to include with notifications"
                                  " for this monitor", default=None)
+        post_parser.add_argument('--tags', help="comma-separated list of tags", default=None)
         post_parser.add_argument('--options', help="json options for the monitor", default=None)
         post_parser.set_defaults(func=cls._post)
 
+        file_post_parser = verb_parsers.add_parser('fpost', help="Create a monitor from file")
+        file_post_parser.add_argument('file', help='json file holding all details',
+                                      type=argparse.FileType('r'))
+        file_post_parser.set_defaults(func=cls._file_post)
+
         update_parser = verb_parsers.add_parser('update', help="Update existing monitor")
         update_parser.add_argument('monitor_id', help="monitor to replace with the new definition")
-        update_parser.add_argument('type', help="type of the monitor, e.g. "
-                                   "'metric alert' 'service check'")
-        update_parser.add_argument('query', help="query to notify on with syntax varying"
-                                   " depending on what type of monitor you are creating")
+        update_parser.add_argument(
+            'type',
+            nargs='?',
+            help="[Deprecated] optional argument preferred"
+                 "type of the monitor, e.g. 'metric alert' 'service check'",
+            default=None
+        )
+        update_parser.add_argument(
+            'query',
+            nargs='?',
+            help="[Deprecated] optional argument preferred"
+                 "query to notify on with syntax varying depending on monitor type",
+            default=None
+        )
+        update_parser.add_argument('--type', help="type of the monitor, e.g. "
+                                   "'metric alert' 'service check'", default=None, dest='type_opt')
+        update_parser.add_argument('--query', help="query to notify on with syntax varying"
+                                   " depending on monitor type", default=None, dest='query_opt')
         update_parser.add_argument('--name', help="name of the alert", default=None)
         update_parser.add_argument('--message', help="message to include with "
                                    "notifications for this monitor", default=None)
         update_parser.add_argument('--options', help="json options for the monitor", default=None)
         update_parser.set_defaults(func=cls._update)
+
+        file_update_parser = verb_parsers.add_parser('fupdate', help="Update existing"
+                                                     " monitor from file")
+        file_update_parser.add_argument('file', help='json file holding all details',
+                                        type=argparse.FileType('r'))
+        file_update_parser.set_defaults(func=cls._file_update)
 
         show_parser = verb_parsers.add_parser('show', help="Show a monitor definition")
         show_parser.add_argument('monitor_id', help="monitor to show")
@@ -91,18 +121,54 @@ class MonitorClient(object):
                                    action='store_true')
         unmute_parser.set_defaults(func=cls._unmute)
 
+        can_delete_parser = verb_parsers.add_parser('can_delete',
+                                                    help="Check if you can delete some monitors")
+        can_delete_parser.add_argument('monitor_ids',
+                                       help="monitors to check if they can be deleted")
+        can_delete_parser.set_defaults(func=cls._can_delete)
+
+        validate_parser = verb_parsers.add_parser('validate',
+                                                  help="Validates if a monitor definition is correct")
+        validate_parser.add_argument('type', help="type of the monitor, e.g."
+                                     "'metric alert' 'service check'")
+        validate_parser.add_argument('query', help="the monitor query")
+        validate_parser.add_argument('--name', help="name of the alert", default=None)
+        validate_parser.add_argument('--message', help="message to include with notifications"
+                                     " for this monitor", default=None)
+        validate_parser.add_argument('--tags', help="comma-separated list of tags", default=None)
+        validate_parser.add_argument('--options', help="json options for the monitor", default=None)
+        validate_parser.set_defaults(func=cls._validate)
+
     @classmethod
     def _post(cls, args):
         api._timeout = args.timeout
         format = args.format
         options = None
         if args.options is not None:
-            try:
-                options = json.loads(args.options)
-            except:
-                raise Exception('bad json parameter')
+            options = json.loads(args.options)
+
+        if args.tags:
+            tags = sorted(set([t.strip() for t in args.tags.split(',') if t.strip()]))
+        else:
+            tags = None
+
         res = api.Monitor.create(type=args.type, query=args.query, name=args.name,
-                                 message=args.message, options=options)
+                                 message=args.message, tags=tags, options=options)
+        report_warnings(res)
+        report_errors(res)
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _file_post(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        monitor = json.load(args.file)
+        res = api.Monitor.create(type=monitor['type'], query=monitor['query'],
+                                 name=monitor['name'], message=monitor['message'],
+                                 options=monitor['options'])
         report_warnings(res)
         report_errors(res)
         if format == 'pretty':
@@ -114,14 +180,53 @@ class MonitorClient(object):
     def _update(cls, args):
         api._timeout = args.timeout
         format = args.format
-        options = None
+
+        to_update = {}
+        if args.type:
+            if args.type_opt:
+                msg = 'Duplicate arguments for `type`. Using optional value --type'
+                print_err("WARNING: {}".format(msg))
+            else:
+                to_update['type'] = args.type
+            msg = "[DEPRECATION] `type` is no longer required to `update` and may be omitted"
+            print_err("WARNING: {}".format(msg))
+        if args.query:
+            if args.query_opt:
+                msg = 'Duplicate arguments for `query`. Using optional value --query'
+                print_err("WARNING: {}".format(msg))
+            else:
+                to_update['query'] = args.query
+            msg = "[DEPRECATION] `query` is no longer required to `update` and may be omitted"
+            print_err("WARNING: {}".format(msg))
+        if args.name:
+            to_update['name'] = args.name
+        if args.message:
+            to_update['message'] = args.message
+        if args.type_opt:
+            to_update['type'] = args.type_opt
+        if args.query_opt:
+            to_update['query'] = args.query_opt
+
         if args.options is not None:
-            try:
-                options = json.loads(args.options)
-            except:
-                raise Exception('bad json parameter')
-        res = api.Monitor.update(args.monitor_id, type=args.type, query=args.query,
-                                 name=args.name, message=args.message, options=options)
+            to_update['options'] = json.loads(args.options)
+
+        res = api.Monitor.update(args.monitor_id, **to_update)
+
+        report_warnings(res)
+        report_errors(res)
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _file_update(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        monitor = json.load(args.file)
+        res = api.Monitor.update(monitor['id'], type=monitor['type'], query=monitor['query'],
+                                 name=monitor['name'], message=monitor['message'],
+                                 options=monitor['options'])
         report_warnings(res)
         report_errors(res)
         if format == 'pretty':
@@ -226,6 +331,38 @@ class MonitorClient(object):
         res = api.Monitor.unmute(args.monitor_id, scope=args.scope, all_scopes=args.all_scopes)
         report_warnings(res)
         report_errors(res)
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _can_delete(cls, args):
+        api._timeout = args.timeout
+        monitor_ids = [i.strip() for i in args.monitor_ids.split(',') if i.strip()]
+        res = api.Monitor.can_delete(monitor_ids=monitor_ids)
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _validate(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        options = None
+        if args.options is not None:
+            options = json.loads(args.options)
+
+        if args.tags:
+            tags = sorted(set([t.strip() for t in args.tags.split(',') if t.strip()]))
+        else:
+            tags = None
+
+        res = api.Monitor.validate(type=args.type, query=args.query, name=args.name,
+                                   message=args.message, tags=tags, options=options)
+        # report_warnings(res)
+        # report_errors(res)
         if format == 'pretty':
             print(pretty_json(res))
         else:

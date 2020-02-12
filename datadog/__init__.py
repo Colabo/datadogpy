@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 """
 Datadogpy is a collection of Datadog Python tools.
 It contains:
@@ -16,7 +19,7 @@ import os.path
 from datadog import api
 from datadog.dogstatsd import DogStatsd, statsd  # noqa
 from datadog.threadstats import ThreadStats, datadog_lambda_wrapper, lambda_metric  # noqa
-from datadog.util.compat import iteritems, NullHandler
+from datadog.util.compat import iteritems, NullHandler, text
 from datadog.util.config import get_version
 from datadog.util.hostname import get_hostname
 
@@ -31,7 +34,8 @@ logging.getLogger('datadog.threadstats').addHandler(NullHandler())
 
 def initialize(api_key=None, app_key=None, host_name=None, api_host=None,
                statsd_host=None, statsd_port=None, statsd_use_default_route=False,
-               statsd_socket_path=None, **kwargs):
+               statsd_socket_path=None, statsd_namespace=None, statsd_constant_tags=None,
+               return_raw_response=False, hostname_from_config=True, **kwargs):
     """
     Initialize and configure Datadog.api and Datadog.statsd modules
 
@@ -41,7 +45,11 @@ def initialize(api_key=None, app_key=None, host_name=None, api_host=None,
     :param app_key: Datadog application key
     :type app_key: string
 
-    :param proxies: Proxy to use to connect to Datadog API
+    :param host_name: Set a specific hostname
+    :type host_name: string
+
+    :param proxies: Proxy to use to connect to Datadog API;
+                    for example, 'proxies': {'http': "http:<user>:<pass>@<ip>:<port>/"}
     :type proxies: dictionary mapping protocol to the URL of the proxy.
 
     :param api_host: Datadog API endpoint
@@ -60,6 +68,9 @@ def initialize(api_key=None, app_key=None, host_name=None, api_host=None,
     :param statsd_socket_path: path to the DogStatsd UNIX socket. Supersedes statsd_host
     and stats_port if provided.
 
+    :param statsd_constant_tags: A list of tags to be applied to all metrics ("tag", "tag:value")
+    :type statsd_constant_tags: list of string
+
     :param cacert: Path to local certificate file used to verify SSL \
         certificates. Can also be set to True (default) to use the systems \
         certificate store, or False to skip SSL verification
@@ -68,13 +79,24 @@ def initialize(api_key=None, app_key=None, host_name=None, api_host=None,
     :param mute: Mute any ApiError or ClientError before they escape \
         from datadog.api.HTTPClient (default: True).
     :type mute: boolean
+
+    :param return_raw_response: Whether or not to return the raw response object in addition \
+        to the decoded response content (default: False)
+    :type return_raw_response: boolean
+
+    :param hostname_from_config: Set the hostname from the Datadog agent config (agent 5). Will be deprecated
+    :type hostname_from_config: boolean
     """
     # API configuration
-    api._api_key = api_key if api_key is not None else os.environ.get('DATADOG_API_KEY')
-    api._application_key = app_key if app_key is not None else os.environ.get('DATADOG_APP_KEY')
-    api._host_name = host_name if host_name is not None else get_hostname()
-    api._api_host = api_host if api_host is not None else \
-        os.environ.get('DATADOG_HOST', 'https://api.datadoghq.com')
+    api._api_key = api_key or api._api_key or os.environ.get('DATADOG_API_KEY', os.environ.get('DD_API_KEY'))
+    api._application_key = (
+        app_key or
+        api._application_key or
+        os.environ.get('DATADOG_APP_KEY', os.environ.get('DD_APP_KEY'))
+    )
+    api._hostname_from_config = hostname_from_config
+    api._host_name = host_name or api._host_name or get_hostname(hostname_from_config)
+    api._api_host = api_host or api._api_host or os.environ.get('DATADOG_HOST', 'https://api.datadoghq.com')
 
     # Statsd configuration
     # ...overrides the default `statsd` instance attributes
@@ -87,8 +109,14 @@ def initialize(api_key=None, app_key=None, host_name=None, api_host=None,
             statsd.host = statsd.resolve_host(statsd_host, statsd_use_default_route)
         if statsd_port:
             statsd.port = int(statsd_port)
+    if statsd_namespace:
+        statsd.namespace = text(statsd_namespace)
+    if statsd_constant_tags:
+        statsd.constant_tags += statsd_constant_tags
+
+    api._return_raw_response = return_raw_response
 
     # HTTP client and API options
     for key, value in iteritems(kwargs):
-        attribute = "_{0}".format(key)
+        attribute = "_{}".format(key)
         setattr(api, attribute, value)

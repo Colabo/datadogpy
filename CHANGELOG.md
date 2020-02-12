@@ -1,10 +1,126 @@
 CHANGELOG
 =========
+## 0.34.1 / 2020-02-10
+
+* [Fixed] Revert dogstatsd telemetry. See [#530](https://github.com/DataDog/datadogpy/pull/530).
+* [Fixed] Fix ServiceLevelObjective.get_all limit default in docstring. See [#527](https://github.com/DataDog/datadogpy/pull/527). Thanks [taylor-chen](https://github.com/taylor-chen).
+
+## 0.34.0 / 2020-02-04
+
+* [Deprecated] Alias `dog` script names as `dogshell`. Please start using `dogshell` instead of `dog` command. See [#305](https://github.com/DataDog/datadogpy/pull/305). Thanks [dwminer](https://github.com/dwminer).
+* [Fixed] [dogshell] Enforce the default 'normal' event priority client side. See [#511](https://github.com/DataDog/datadogpy/pull/511).
+* [Fixed] [dogstatsd] Handle EAGAIN socket error when dropping packets. See [#515](https://github.com/DataDog/datadogpy/pull/515). Thanks [mrknmc](https://github.com/mrknmc).
+* [Fixed] [dogstatsd] Handle OSError on socket.close on Python 3.6+. See [#510](https://github.com/DataDog/datadogpy/pull/510). Thanks [charettes](https://github.com/charettes).
+* [Added] [dogstatsd] Add `statsd_constant_tags` kwarg to datadog.initialize(). See [#494](https://github.com/DataDog/datadogpy/pull/494). Thanks [kainswor](https://github.com/kainswor).
+* [Added] [dogstatsd] Adding telemetry to dogstatsd. See [#505](https://github.com/DataDog/datadogpy/pull/505).
+* [Added] [dogwrap] Add duration as metric. See [#506](https://github.com/DataDog/datadogpy/pull/506).
+* [Added] [dogwrap] Add option to send to EU endpoint. See [#502](https://github.com/DataDog/datadogpy/pull/502).
+* [Added] [dogwrap] Add warning option for dogwrap based on exit codes. See [#471](https://github.com/DataDog/datadogpy/pull/471). Thanks [dabcoder](https://github.com/dabcoder).
+* [Added] Include LICENSE in MANIFEST.in. See [#500](https://github.com/DataDog/datadogpy/pull/500). Thanks [jjhelmus](https://github.com/jjhelmus).
+* [Added] Add base class for all exceptions. See [#496](https://github.com/DataDog/datadogpy/pull/496). Thanks [hakamadare](https://github.com/hakamadare).
+* [Added] Tag normalization. See [#489](https://github.com/DataDog/datadogpy/pull/489).
+
+
+# 0.33.0 / 2019-12-12
+
+* [FEATURE] Roles and Permissions APIs [#481][]
+* [FEATURE] Add support for Azure, GCP and AWS integrations endpoints [#429][]
+* [FEATURE] Add support for new `Monitor.can_delete` endpoint [#474][]
+* [FEATURE] Add support for the `Monitor.validate` endpoint [#487][]
+* [FEATURE] Add support for `/v1/downtime/cancel/by_scope` [#488][]
+* [IMPROVEMENT] Dogshell: remove Exception wrapping [#477][]
+
+# 0.32.0 / 2019-11-18
+
+* [BUGFIX] Fix distribution metric submission by sending api/app keys through query params for this endpoint. [#480][]
+* [FEATURE] Add Synthetics support [#433][]
+
+# 0.31.0 / 2019-10-30
+
+* [BUGFIX] Fix possible issue that could leak file descriptors when reading config [#425][]
+* [BUGFIX] Fix graph snapshot status endpoint [#448][]
+* [BUGFIX] Revert `users` resource name to singular `user` as it was not fully supported [#450][]
+* [BUGFIX] Fix error printing to stderr char by char [#449][]
+* [BUGFIX] Add `_return_raw_response` to `api` module to prevent import errors before `initialize` is called [#461][]
+* [BUGFIX] Threadstats: Fix periodic timer error on interpreter shutdown [#423][]
+* [FEATURE] Add support for SLOs [#453][] and [#464][]
+* [FEATURE] Add ability to send compressed payloads for metrics and distribution. [#466][]
+* [FEATURE] Add parameter `hostname_from_config` to `initialize` to enable/disable hostname lookup from datadog-agent config to avoid warnings [#428][]
+* [FEATURE] Dogstatsd: add ability to specify a default sample rate for all submissions [#470][] (thanks [@dtao][])
+* [IMPROVEMENT] Send API credentials through headers instead of URL query parameter [#446][]
+* [IMPROVEMENT] Clarify docstring for metrics API [#463][]
+* [IMPROVEMENT] Assert `alert_type` is correct when creating event [#467][]
+* [IMPROVEMENT] Dogshell: make query and type optional when updating a monitor [#447][]
+
+# 0.30.0 / 2019-09-12
+
+* [BUGFIX] Treat `API_HOST` as URL, not as string [#411][]
+* [FEATURE] Add `return_raw_response` option to `initialize` to enable adding raw responses to return values [#414][]
+* [IMPROVEMENT] Add project URLs to package metadata [#413][] (thanks [@Tenzer][])
+* [IMPROVEMENT] Add support for handling a 401 status as an API error [#418][]
+* [IMPROVEMENT] Allow configuring proxy in `~/.dogrc` for usage with dogshell [#415][]
+* [IMPROVEMENT] Update `user` resource name to `users` to match new plural endpoints [#421][]
+* [OTHER] Add deprecation warning to old aws lambda threadstats integration [#417][]
+* [OTHER] Removed functionality to delete events and comments, as it's no longer supported by API [#420][]
+
+# 0.29.3 / 2019-06-12
+
+* [BUGFIX] Fix encoding issue on install [#391][] and [#392][] (thanks [@Alphadash][] and [@ningirsu][])
+* [BUGFIX] Dogwrap: Fix dogwrap unicode option parsing on python 3, [#395][] (thanks [@Matt343][])
+
+# 0.29.2 / 2019-06-10
+
+* [BUGFIX] Revert [Return Rate Limit Headers][#378], [#401][]
+
+# 0.29.1 / 2019-06-10
+
+* [BUGFIX] Properly extend response headers to response object to fix [Return Rate Limit Headers][#378], [#397][]
+
+# 0.29.0 / 2019-06-05
+
+* [BUGFIX] Lambda wrapper: Always flush, even on exceptions, [#359][] (thanks [@jmehnle][])
+* [BUGFIX] API: Do not send JSON body in GET requests, [#382][]
+* [BUGFIX] API: Allow listing timeboards with empty descriptions, [#385][] (thanks [@Tenzer][])
+* [BUGFIX] Dogwrap: Better string handling and python3 support, [#379][]
+* [BUGFIX] Threadstats: ensure MetricsAggregator is threadsafe, [#370][] (thanks [@TheKevJames][])
+* [BUGFIX] Dogshell: Fixes the `--tags` argument for service_checks, [#387][] (thanks [@gordlea][])
+* [FEATURE] API: Add support for dashboard list API v2, [#374][]
+* [IMPROVEMENT] API: Handle http code 429 rate limiting in external python library, [#376][]
+* [IMPROVEMENT] API: Add ability to not attach_host_name to metrics, events and distributions, [#383][]
+* [IMPROVEMENT] API: Return Rate Limit Headers, [#378][] (thanks [@fdhoff][])
+* [IMPROVEMENT] API: Do not override API parameters with default when calling initialize if they are already set, [#386][]
+* [IMPROVEMENT] Dogshell: Add `--tags` support to monitors, [#356][]
+* [IMPROVEMENT] Dogshell: Add documentation for environment variables, [#388][] (thanks [@sc68cal][])
+* [IMPROVEMENT] Dogstatsd: Added a new parameter `statsd_default_namespace` to the `initialize` method, [#353][] (thanks [@lceS2][])
+* [IMPROVEMENT] Import Iterable from collections.abc on python3 to avoid deprecation warning, [#381][]
+* [IMPROVEMENT] Do not capture `/bin/hostname` stderr, [#368][] (thanks [@brendanlong][])
+* [IMPROVEMENT] Add support for environment variables `DD_API_KEY` and `DD_APP_KEY` for setting API and APP keys respectively, [#373][]
+
+=========
+
+# 0.28.0 / 2019-03-27
+
+* [BUGFIX] Dogshell: Properly require `handle` as an argument to the `comment` subcommand, [#364][]
+* [FEATURE] API: Add support for the `Dashboard.get_all` API, [#362][]
+* [FEATURE] Dogshell: Add support for defining monitors as JSON files, [#322][] (thanks [@Hefeweizen][])
+* [FEATURE] DogStatsD: Add support for the `DD_AGENT_HOST`, `DD_DOGSTATSD_PORT`, and `DD_ENTITY_ID` environment variables, [#363][]
+* [IMPROVEMENT] API: Add support for the `free` layout_type in `Dashboard.create` and `Dashboard.update`, [#362][]
+
+# 0.27.0 / 2019-03-06
+
+**New Dashboards API: https://docs.datadoghq.com/api/?lang=python#dashboards**
+
+The Timeboard and Screenboard API resources are deprecated in favor of the new Dashboard resource. See https://docs.datadoghq.com/api/?lang=python#dashboards for more details.
+
+* [BUGFIX] API: Fix `UnicodeError` exceptions raised by the API client on errors that contain non ascii characters, [#223][], [#346][]
+* [BUGFIX] DogStatsD: Fix unsafe socket creation on multithreaded applications and catch more exceptions, [#212][], [#349][]
+* [FEATURE] API: Add support for the new Dashboard API, [#351][]
+* [OTHER] Support `tox` for testing, [#342][]
+* [OTHER] Support Python 3.7, **drop support for Python 3.3**, [#345][]
 
 # 0.26.0 / 2018-11-29
 
 * [IMPROVEMENT] API: Keep HTTP connections alive when using `requests`, [#328][]
-
 
 # 0.25.0 / 2018-11-27
 
@@ -298,7 +414,9 @@ See [#8][], thanks [@benweatherman][]
 [#203]: https://github.com/DataDog/datadogpy/issues/203
 [#206]: https://github.com/DataDog/datadogpy/issues/206
 [#207]: https://github.com/DataDog/datadogpy/issues/207
+[#212]: https://github.com/DataDog/datadogpy/issues/212
 [#221]: https://github.com/DataDog/datadogpy/issues/221
+[#223]: https://github.com/DataDog/datadogpy/issues/223
 [#228]: https://github.com/DataDog/datadogpy/issues/228
 [#230]: https://github.com/DataDog/datadogpy/issues/230
 [#233]: https://github.com/DataDog/datadogpy/issues/233
@@ -326,30 +444,102 @@ See [#8][], thanks [@benweatherman][]
 [#304]: https://github.com/DataDog/datadogpy/issues/304
 [#309]: https://github.com/DataDog/datadogpy/issues/309
 [#312]: https://github.com/DataDog/datadogpy/issues/312
+[#322]: https://github.com/DataDog/datadogpy/issues/322
 [#324]: https://github.com/DataDog/datadogpy/issues/324
 [#328]: https://github.com/DataDog/datadogpy/issues/328
+[#342]: https://github.com/DataDog/datadogpy/issues/342
+[#345]: https://github.com/DataDog/datadogpy/issues/345
+[#346]: https://github.com/DataDog/datadogpy/issues/346
+[#349]: https://github.com/DataDog/datadogpy/issues/349
+[#351]: https://github.com/DataDog/datadogpy/issues/351
+[#353]: https://github.com/DataDog/datadogpy/issues/353
+[#356]: https://github.com/DataDog/datadogpy/issues/356
+[#359]: https://github.com/DataDog/datadogpy/issues/359
+[#362]: https://github.com/DataDog/datadogpy/issues/362
+[#363]: https://github.com/DataDog/datadogpy/issues/363
+[#364]: https://github.com/DataDog/datadogpy/issues/364
+[#368]: https://github.com/DataDog/datadogpy/issues/368
+[#370]: https://github.com/DataDog/datadogpy/issues/370
+[#373]: https://github.com/DataDog/datadogpy/issues/373
+[#374]: https://github.com/DataDog/datadogpy/issues/374
+[#376]: https://github.com/DataDog/datadogpy/issues/376
+[#378]: https://github.com/DataDog/datadogpy/issues/378
+[#379]: https://github.com/DataDog/datadogpy/issues/379
+[#381]: https://github.com/DataDog/datadogpy/issues/381
+[#382]: https://github.com/DataDog/datadogpy/issues/382
+[#383]: https://github.com/DataDog/datadogpy/issues/383
+[#385]: https://github.com/DataDog/datadogpy/issues/385
+[#386]: https://github.com/DataDog/datadogpy/issues/386
+[#387]: https://github.com/DataDog/datadogpy/issues/387
+[#388]: https://github.com/DataDog/datadogpy/issues/388
+[#391]: https://github.com/DataDog/datadogpy/issues/391
+[#392]: https://github.com/DataDog/datadogpy/issues/392
+[#395]: https://github.com/DataDog/datadogpy/issues/395
+[#397]: https://github.com/DataDog/datadogpy/issues/397
+[#401]: https://github.com/DataDog/datadogpy/issues/401
+[#411]: https://github.com/DataDog/datadogpy/issues/411
+[#413]: https://github.com/DataDog/datadogpy/issues/413
+[#414]: https://github.com/DataDog/datadogpy/issues/414
+[#415]: https://github.com/DataDog/datadogpy/issues/415
+[#417]: https://github.com/DataDog/datadogpy/issues/417
+[#418]: https://github.com/DataDog/datadogpy/issues/418
+[#420]: https://github.com/DataDog/datadogpy/issues/420
+[#421]: https://github.com/DataDog/datadogpy/issues/421
+[#423]: https://github.com/DataDog/datadogpy/issues/423
+[#425]: https://github.com/DataDog/datadogpy/issues/425
+[#428]: https://github.com/DataDog/datadogpy/issues/428
+[#429]: https://github.com/DataDog/datadogpy/issues/429
+[#433]: https://github.com/DataDog/datadogpy/issues/433
+[#446]: https://github.com/DataDog/datadogpy/issues/446
+[#447]: https://github.com/DataDog/datadogpy/issues/447
+[#448]: https://github.com/DataDog/datadogpy/issues/448
+[#449]: https://github.com/DataDog/datadogpy/issues/449
+[#450]: https://github.com/DataDog/datadogpy/issues/450
+[#453]: https://github.com/DataDog/datadogpy/issues/453
+[#461]: https://github.com/DataDog/datadogpy/issues/461
+[#463]: https://github.com/DataDog/datadogpy/issues/463
+[#464]: https://github.com/DataDog/datadogpy/issues/464
+[#466]: https://github.com/DataDog/datadogpy/issues/466
+[#467]: https://github.com/DataDog/datadogpy/issues/467
+[#470]: https://github.com/DataDog/datadogpy/issues/470
+[#474]: https://github.com/DataDog/datadogpy/issues/474
+[#477]: https://github.com/DataDog/datadogpy/issues/477
+[#480]: https://github.com/DataDog/datadogpy/issues/480
+[#481]: https://github.com/DataDog/datadogpy/issues/481
+[#487]: https://github.com/DataDog/datadogpy/issues/487
+[#488]: https://github.com/DataDog/datadogpy/issues/488
+[@Alphadash]: https://github.com/Alphadash
 [@GrahamDumpleton]: https://github.com/GrahamDumpleton
+[@Hefeweizen]: https://github.com/Hefeweizen
+[@Matt343]: https://github.com/Matt343
 [@Tenzer]: https://github.com/Tenzer
+[@TheKevJames]: https://github.com/TheKevJames
 [@aknuds1]: https://github.com/aknuds1
 [@alexpjohnson]: https://github.com/alexpjohnson
 [@aristiden7o]: https://github.com/aristiden7o
 [@benweatherman]: https://github.com/benweatherman
+[@brendanlong]: https://github.com/brendanlong
 [@cabouffard]: https://github.com/cabouffard
 [@clokep]: https://github.com/clokep
 [@dcrosta]: https://github.com/dcrosta
+[@dtao]: https://github.com/dtao
 [@dotlambda]: https://github.com/dotlambda
 [@drstevens]: https://github.com/drstevens
 [@emad]: https://github.com/emad
 [@evanj]: https://github.com/evanj
 [@ewdurbin]: https://github.com/ewdurbin
+[@fdhoff]: https://github.com/fdhoff
 [@florean]: https://github.com/florean
 [@g--]: https://github.com/g--
 [@glasnt]: https://github.com/glasnt
 [@gnarf]: https://github.com/gnarf
+[@gordlea]: https://github.com/gordlea
 [@gplasky]: https://github.com/gplasky
 [@jbain]: https://github.com/jbain
+[@jmehnle]: https://github.com/jmehnle
 [@jofusa]: https://github.com/jofusa
 [@kuzmich]: https://github.com/kuzmich
+[@lceS2]: https://github.com/lceS2
 [@leozc]: https://github.com/leozc
 [@marshallbrekka]: https://github.com/marshallbrekka
 [@martin308]: https://github.com/martin308
@@ -357,10 +547,12 @@ See [#8][], thanks [@benweatherman][]
 [@mgood]: https://github.com/mgood
 [@miketheman]: https://github.com/miketheman
 [@nilabhsagar]: https://github.com/nilabhsagar
+[@ningirsu]: https://github.com/ningirsu
 [@ogst]: https://github.com/ogst
 [@ojongerius]: https://github.com/ojongerius
 [@ronindesign]: https://github.com/ronindesign
 [@ross]: https://github.com/ross
+[@sc68cal]: https://github.com/sc68cal
 [@seiro-ogasawara]: https://github.com/seiro-ogasawara
 [@shargan]: https://github.com/shargan
 [@steven-liu]: https://github.com/steven-liu

@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 from __future__ import print_function
 import os
@@ -10,23 +13,32 @@ from datadog.util.compat import is_p3k, configparser, IterableUserDict,\
 
 def print_err(msg):
     if is_p3k():
-        print('ERROR: ' + msg + '\n', file=sys.stderr)
+        print(msg + '\n', file=sys.stderr)
     else:
         sys.stderr.write(msg + '\n')
+    sys.stderr.flush()
 
 
 def report_errors(res):
     if 'errors' in res:
-        for e in res['errors']:
-            print_err('ERROR: ' + e)
+        errors = res['errors']
+        if isinstance(errors, list):
+            for error in errors:
+                print_err("ERROR: {}".format(error))
+        else:
+            print_err("ERROR: {}".format(errors))
         sys.exit(1)
     return False
 
 
 def report_warnings(res):
     if 'warnings' in res:
-        for e in res['warnings']:
-            print_err('WARNING: ' + e)
+        warnings = res['warnings']
+        if isinstance(warnings, list):
+            for warning in warnings:
+                print_err("WARNING: {}".format(warning))
+        else:
+            print_err("WARNING: {}".format(warnings))
         return True
     return False
 
@@ -77,6 +89,8 @@ class DogshellConfig(IterableUserDict):
 
             self['api_key'] = config.get('Connection', 'apikey')
             self['app_key'] = config.get('Connection', 'appkey')
+            if config.has_section('Proxy'):
+                self['proxies'] = dict(config.items('Proxy'))
             if config.has_option('Connection', 'host_name'):
                 self['host_name'] = config.get('Connection', 'host_name')
             if config.has_option('Connection', 'api_host'):

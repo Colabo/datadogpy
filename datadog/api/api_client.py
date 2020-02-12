@@ -1,7 +1,11 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 import logging
 import time
+import zlib
 
 # datadog
 import zlib
@@ -16,6 +20,7 @@ from datadog.api.exceptions import (
 )
 from datadog.api.http_client import resolve_http_client
 from datadog.util.compat import is_p3k
+from datadog.util.format import construct_url, construct_path, normalize_tags
 
 log = logging.getLogger('datadog.api')
 
@@ -30,7 +35,7 @@ class APIClient(object):
     _max_timeouts = _max_timeouts
     _backoff_timestamp = None
     _timeout_counter = 0
-    _api_version = _api_version
+    _sort_keys = False
 
     # Plugged HTTP client
     _http_client = None
@@ -46,8 +51,9 @@ class APIClient(object):
         return cls._http_client
 
     @classmethod
-    def submit(cls, method, path, body=None, attach_host_name=False, response_formatter=None,
-               error_formatter=None, **params):
+    def submit(cls, method, path, api_version=None, body=None, attach_host_name=False,
+               response_formatter=None, error_formatter=None, suppress_response_errors_on_codes=None,
+               compress_payload=True, **params):
         """
         Make an HTTP API request
 
@@ -56,6 +62,8 @@ class APIClient(object):
 
         :param path: API endpoint url
         :type path: url
+
+        :param api_version: The API version used
 
         :param body: dictionary to be sent in the body of the request
         :type body: dictionary
@@ -68,6 +76,13 @@ class APIClient(object):
 
         :param attach_host_name: link the new resource object to the host name
         :type attach_host_name: bool
+
+        :param suppress_response_errors_on_codes: suppress ApiError on `errors` key in the response for the given HTTP
+                                                  status codes
+        :type suppress_response_errors_on_codes: None|list(int)
+
+        :param compress_payload: compress the payload using zlib
+        :type compress_payload: bool
 
         :param params: dictionary to be sent in the query string of the request
         :type params: dictionary
@@ -83,15 +98,31 @@ class APIClient(object):
             # Import API, User and HTTP settings
             from datadog.api import _api_key, _application_key, _api_host, \
                 _mute, _host_name, _proxies, _max_retries, _timeout, \
-                _cacert
+                _cacert, _return_raw_response
 
             # Check keys and add then to params
             if _api_key is None:
                 raise ApiNotInitialized("API key is not set."
                                         " Please run 'initialize' method first.")
-            params['api_key'] = _api_key
+
+            # Set api and app keys in headers
+            headers = {}
+            headers['DD-API-KEY'] = _api_key
             if _application_key:
-                params['application_key'] = _application_key
+                headers['DD-APPLICATION-KEY'] = _application_key
+
+            # Check if the api_version is provided
+            if not api_version:
+                api_version = _api_version
+
+            # set api and app keys in params only for some endpoints and thus remove keys from headers
+            # as they cannot be set in both params and headers
+            if cls._set_api_and_app_keys_in_params(api_version, path):
+                params['api_key'] = _api_key
+                del headers['DD-API-KEY']
+                if _application_key:
+                    params['application_key'] = _application_key
+                    del headers['DD-APPLICATION-KEY']
 
             # Attach host name to body
             if attach_host_name and body:
@@ -107,22 +138,24 @@ class APIClient(object):
 
             # If defined, make sure tags are defined as a comma-separated string
             if 'tags' in params and isinstance(params['tags'], list):
-                params['tags'] = ','.join(params['tags'])
+                tag_list = normalize_tags(params['tags'])
+                params['tags'] = ','.join(tag_list)
+
+            # If defined, make sure monitor_ids are defined as a comma-separated string
+            if 'monitor_ids' in params and isinstance(params['monitor_ids'], list):
+                params['monitor_ids'] = ','.join(str(i) for i in params['monitor_ids'])
 
             # Process the body, if necessary
-            headers = {}
             if isinstance(body, dict):
-                body = json.dumps(body)
-                headers = {'Content-Type': 'application/json',
-                               'Content-Encoding': 'deflate'}
-                body = zlib.compress(body.encode('utf-8'))
+                body = json.dumps(body, sort_keys=cls._sort_keys)
+                headers["Content-Encoding"] = "application/json"
+
+            if compress_payload:
+                body = zlib.compress(body.encode("utf-8"))
+                headers["Content-Encoding"] = "deflate"
 
             # Construct the URL
-            url = "{api_host}/api/{api_version}/{path}".format(
-                  api_host=_api_host,
-                  api_version=cls._api_version,
-                  path=path.lstrip("/"),
-            )
+            url = construct_url(_api_host, api_version, path)
 
             # Process requesting
             start_time = time.time()
@@ -151,14 +184,23 @@ class APIClient(object):
                 except ValueError:
                     raise ValueError('Invalid JSON response: {0}'.format(content))
 
-                if response_obj and 'errors' in response_obj:
-                    raise ApiError(response_obj)
+                # response_obj can be a bool and not a dict
+                if isinstance(response_obj, dict):
+                    if response_obj and 'errors' in response_obj:
+                        # suppress ApiError when specified and just return the response
+                        if not (suppress_response_errors_on_codes and
+                                result.status_code in suppress_response_errors_on_codes):
+                            raise ApiError(response_obj)
             else:
                 response_obj = None
-            if response_formatter is None:
-                return response_obj
+
+            if response_formatter is not None:
+                response_obj = response_formatter(response_obj)
+
+            if _return_raw_response:
+                return response_obj, result
             else:
-                return response_formatter(response_obj)
+                return response_obj
 
         except HttpTimeout:
             cls._timeout_counter += 1
@@ -174,7 +216,7 @@ class APIClient(object):
                 raise
         except ApiError as e:
             if _mute:
-                for error in e.args[0]['errors']:
+                for error in (e.args[0].get('errors') or []):
                     log.error(error)
                 if error_formatter is None:
                     return e.args[0]
@@ -230,3 +272,24 @@ class APIClient(object):
         backed_off_time = now - cls._backoff_timestamp
         backoff_time_left = cls._backoff_period - backed_off_time
         return round(backed_off_time, 2), round(backoff_time_left, 2)
+
+    @classmethod
+    def _set_api_and_app_keys_in_params(cls, api_version, path):
+        """
+        Some endpoints need api and app keys to be set in params only
+        For these endpoints, api and app keys in headers are ignored
+        :return: True if this endpoint needs api and app keys params set
+        """
+        constructed_path = construct_path(api_version, path)
+
+        set_of_paths = {
+            "v1/distribution_points",
+            "v1/series",
+            "v1/check_run",
+            "v1/events",
+            "v1/screen",
+        }
+        if constructed_path in set_of_paths:
+            return True
+
+        return False

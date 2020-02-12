@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 from collections import deque
 from functools import reduce
@@ -60,7 +63,7 @@ class TestDogStatsdThreadSafety(unittest.TestCase):
         packets = list(filter(lambda x: x, packets))
 
         # Count
-        self.assertEquals(
+        self.assertEqual(
             len(packets), count,
             u"Metric size assertion failed: expected={expected}, received={received}".format(
                 expected=count, received=len(packets)

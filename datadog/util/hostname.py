@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 import logging
@@ -35,7 +38,7 @@ def is_valid_hostname(hostname):
     return True
 
 
-def get_hostname():
+def get_hostname(hostname_from_config):
     """
     Get the canonical host name this agent should identify as. This is
     the authoritative source of the host name for the agent.
@@ -50,14 +53,18 @@ def get_hostname():
     hostname = None
     config = None
 
-    # first, try the config
+    # first, try the config if hostname_from_config is set to True
     try:
-        config = get_config()
-        config_hostname = config.get('hostname')
-        if config_hostname and is_valid_hostname(config_hostname):
-            return config_hostname
+        if hostname_from_config:
+            config = get_config()
+            config_hostname = config.get('hostname')
+            if config_hostname and is_valid_hostname(config_hostname):
+                log.warning("Hostname lookup from agent configuration will be deprecated "
+                            "in an upcoming version of datadogpy. Set hostname_from_config to False "
+                            "to get rid of this warning")
+                return config_hostname
     except CfgNotFound:
-        log.info("No agent or invalid configuration file found")
+        log.warning("No agent or invalid configuration file found")
 
     # Try to get GCE instance name
     if hostname is None:
@@ -70,7 +77,7 @@ def get_hostname():
         def _get_hostname_unix():
             try:
                 # try fqdn
-                p = subprocess.Popen(['/bin/hostname', '-f'], stdout=subprocess.PIPE)
+                p = subprocess.Popen(['/bin/hostname', '-f'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                 out, err = p.communicate()
                 if p.returncode == 0:
                     if is_p3k():
@@ -124,7 +131,7 @@ def get_ec2_instance_id():
         finally:
             # Reset the previous default timeout
             socket.setdefaulttimeout(old_timeout)
-    except:
+    except Exception:
         return socket.gethostname()
 
 

@@ -1,9 +1,35 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 """
 API & HTTP Clients exceptions.
 """
 
 
-class ClientError(Exception):
+class DatadogException(Exception):
+    """
+    Base class for Datadog API exceptions.  Use this for patterns like the following:
+
+        try:
+            # do something with the Datadog API
+        except datadog.api.exceptions.DatadogException:
+            # handle any Datadog-specific exceptions
+    """
+
+
+class ProxyError(DatadogException):
+    """
+    HTTP connection to the configured proxy server failed.
+    """
+    def __init__(self, method, url, exception):
+        message = u"Could not request {method} {url}: Unable to connect to proxy. "\
+                  u"Please check the proxy configuration and try again.".format(
+                      method=method, url=url
+                  )
+        super(ProxyError, self).__init__(message)
+
+
+class ClientError(DatadogException):
     """
     HTTP connection to Datadog endpoint is not possible.
     """
@@ -16,7 +42,7 @@ class ClientError(Exception):
         super(ClientError, self).__init__(message)
 
 
-class HttpTimeout(Exception):
+class HttpTimeout(DatadogException):
     """
     HTTP connection timeout.
     """
@@ -29,7 +55,7 @@ class HttpTimeout(Exception):
         super(HttpTimeout, self).__init__(message)
 
 
-class HttpBackoff(Exception):
+class HttpBackoff(DatadogException):
     """
     Backing off after too many timeouts.
     """
@@ -39,7 +65,7 @@ class HttpBackoff(Exception):
         super(HttpBackoff, self).__init__(message)
 
 
-class HTTPError(Exception):
+class HTTPError(DatadogException):
     """
     Datadog returned a HTTP error.
     """
@@ -55,13 +81,13 @@ class HTTPError(Exception):
         super(HTTPError, self).__init__(message)
 
 
-class ApiError(Exception):
+class ApiError(DatadogException):
     """
     Datadog returned an API error (known HTTPError).
 
-    Matches the following status codes: 400, 403, 404, 409.
+    Matches the following status codes: 400, 401, 403, 404, 409, 429.
     """
 
 
-class ApiNotInitialized(Exception):
+class ApiNotInitialized(DatadogException):
     "No API key is set"

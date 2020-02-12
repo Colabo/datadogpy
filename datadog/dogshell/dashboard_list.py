@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 
@@ -57,6 +60,16 @@ class DashboardListClient(object):
         )
         get_dashboards_parser.set_defaults(func=cls._show_dashboards)
 
+        # Get Dashboards for Dashboard List parser (v2)
+        get_dashboards_v2_parser = verb_parsers.add_parser(
+            'show_dashboards_v2',
+            help="Show a list of all dashboards for an existing dashboard list"
+        )
+        get_dashboards_v2_parser.add_argument(
+            'dashboard_list_id', help="Dashboard list to show dashboards from"
+        )
+        get_dashboards_v2_parser.set_defaults(func=cls._show_dashboards_v2)
+
         # Add Dashboards to Dashboard List parser
         add_dashboards_parser = verb_parsers.add_parser(
             'add_dashboards', help="Add dashboards to an existing dashboard list"
@@ -64,13 +77,29 @@ class DashboardListClient(object):
         add_dashboards_parser.add_argument(
             'dashboard_list_id', help="Dashboard list to add dashboards to"
         )
+
         add_dashboards_parser.add_argument(
             'dashboards',
             help='A JSON list of dashboard dicts, e.g. ' +
-                 '[{"type": "custom_timeboard", "id": 1234}, ' +
-                 '{"type": "custom_screenboard", "id": 123}]'
+            '[{"type": "custom_timeboard", "id": 1234}, ' +
+            '{"type": "custom_screenboard", "id": 123}]'
         )
         add_dashboards_parser.set_defaults(func=cls._add_dashboards)
+
+        # Add Dashboards to Dashboard List parser (v2)
+        add_dashboards_v2_parser = verb_parsers.add_parser(
+            'add_dashboards_v2', help="Add dashboards to an existing dashboard list"
+        )
+        add_dashboards_v2_parser.add_argument(
+            'dashboard_list_id', help="Dashboard list to add dashboards to"
+        )
+        add_dashboards_v2_parser.add_argument(
+            'dashboards',
+            help='A JSON list of dashboard dicts, e.g. ' +
+            '[{"type": "custom_timeboard", "id": "ewc-a4f-8ps"}, ' +
+            '{"type": "custom_screenboard", "id": "kwj-3t3-d3m"}]'
+        )
+        add_dashboards_v2_parser.set_defaults(func=cls._add_dashboards_v2)
 
         # Update Dashboards of Dashboard List parser
         update_dashboards_parser = verb_parsers.add_parser(
@@ -82,10 +111,25 @@ class DashboardListClient(object):
         update_dashboards_parser.add_argument(
             'dashboards',
             help='A JSON list of dashboard dicts, e.g. ' +
-                 '[{"type": "custom_timeboard", "id": 1234}, ' +
-                 '{"type": "custom_screenboard", "id": 123}]'
+            '[{"type": "custom_timeboard", "id": 1234}, ' +
+            '{"type": "custom_screenboard", "id": 123}]'
         )
         update_dashboards_parser.set_defaults(func=cls._update_dashboards)
+
+        # Update Dashboards of Dashboard List parser (v2)
+        update_dashboards_v2_parser = verb_parsers.add_parser(
+            'update_dashboards_v2', help="Update dashboards of an existing dashboard list"
+        )
+        update_dashboards_v2_parser.add_argument(
+            'dashboard_list_id', help="Dashboard list to update with dashboards"
+        )
+        update_dashboards_v2_parser.add_argument(
+            'dashboards',
+            help='A JSON list of dashboard dicts, e.g. ' +
+            '[{"type": "custom_timeboard", "id": "ewc-a4f-8ps"}, ' +
+            '{"type": "custom_screenboard", "id": "kwj-3t3-d3m"}]'
+        )
+        update_dashboards_v2_parser.set_defaults(func=cls._update_dashboards_v2)
 
         # Delete Dashboards from Dashboard List parser
         delete_dashboards_parser = verb_parsers.add_parser(
@@ -97,10 +141,25 @@ class DashboardListClient(object):
         delete_dashboards_parser.add_argument(
             'dashboards',
             help='A JSON list of dashboard dicts, e.g. ' +
-                 '[{"type": "custom_timeboard", "id": 1234}, ' +
-                 '{"type": "custom_screenboard", "id": 123}]'
+            '[{"type": "custom_timeboard", "id": 1234}, ' +
+            '{"type": "custom_screenboard", "id": 123}]'
         )
         delete_dashboards_parser.set_defaults(func=cls._delete_dashboards)
+
+        # Delete Dashboards from Dashboard List parser
+        delete_dashboards_v2_parser = verb_parsers.add_parser(
+            'delete_dashboards', help="Delete dashboards from an existing dashboard list"
+        )
+        delete_dashboards_v2_parser.add_argument(
+            'dashboard_list_id', help="Dashboard list to delete dashboards from"
+        )
+        delete_dashboards_v2_parser.add_argument(
+            'dashboards',
+            help='A JSON list of dashboard dicts, e.g. ' +
+            '[{"type": "custom_timeboard", "id": "ewc-a4f-8ps"}, ' +
+            '{"type": "custom_screenboard", "id": "kwj-3t3-d3m"}]'
+        )
+        delete_dashboards_v2_parser.set_defaults(func=cls._delete_dashboards_v2)
 
     @classmethod
     def _post(cls, args):
@@ -193,6 +252,21 @@ class DashboardListClient(object):
             print(json.dumps(res))
 
     @classmethod
+    def _show_dashboards_v2(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        dashboard_list_id = args.dashboard_list_id
+
+        res = api.DashboardList.v2.get_items(dashboard_list_id)
+        report_warnings(res)
+        report_errors(res)
+
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
     def _add_dashboards(cls, args):
         api._timeout = args.timeout
         format = args.format
@@ -200,6 +274,22 @@ class DashboardListClient(object):
         dashboards = json.loads(args.dashboards)
 
         res = api.DashboardList.add_items(dashboard_list_id, dashboards=dashboards)
+        report_warnings(res)
+        report_errors(res)
+
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _add_dashboards_v2(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        dashboard_list_id = args.dashboard_list_id
+        dashboards = json.loads(args.dashboards)
+
+        res = api.DashboardList.v2.add_items(dashboard_list_id, dashboards=dashboards)
         report_warnings(res)
         report_errors(res)
 
@@ -225,6 +315,22 @@ class DashboardListClient(object):
             print(json.dumps(res))
 
     @classmethod
+    def _update_dashboards_v2(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        dashboard_list_id = args.dashboard_list_id
+        dashboards = json.loads(args.dashboards)
+
+        res = api.DashboardList.v2.update_items(dashboard_list_id, dashboards=dashboards)
+        report_warnings(res)
+        report_errors(res)
+
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
     def _delete_dashboards(cls, args):
         api._timeout = args.timeout
         format = args.format
@@ -232,6 +338,22 @@ class DashboardListClient(object):
         dashboards = json.loads(args.dashboards)
 
         res = api.DashboardList.delete_items(dashboard_list_id, dashboards=dashboards)
+        report_warnings(res)
+        report_errors(res)
+
+        if format == 'pretty':
+            print(pretty_json(res))
+        else:
+            print(json.dumps(res))
+
+    @classmethod
+    def _delete_dashboards_v2(cls, args):
+        api._timeout = args.timeout
+        format = args.format
+        dashboard_list_id = args.dashboard_list_id
+        dashboards = json.loads(args.dashboards)
+
+        res = api.DashboardList.v2.delete_items(dashboard_list_id, dashboards=dashboards)
         report_warnings(res)
         report_errors(res)
 

@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # flake8: noqa
 """
 Imports for compatibility with Python 2, Python 3 and Google App Engine.
@@ -6,6 +9,11 @@ from functools import wraps
 import logging
 import socket
 import sys
+
+try:
+    from urllib.parse import urljoin
+except ImportError:
+    from urlparse import urljoin
 
 
 def _is_py_version_higher_than(major, minor=0):
@@ -27,6 +35,13 @@ def is_higher_py35():
     Assert that Python is version 3.5 or higher.
     """
     return _is_py_version_higher_than(3, 5)
+
+
+def is_pypy():
+    """
+    Assert that PyPy is being used (regardless of 2 or 3)
+    """
+    return '__pypy__' in sys.builtin_module_names
 
 
 get_input = input

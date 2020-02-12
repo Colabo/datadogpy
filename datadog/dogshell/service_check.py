@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 # stdlib
 import json
 
@@ -31,9 +34,13 @@ class ServiceCheckClient(object):
     def _check(cls, args):
         api._timeout = args.timeout
         format = args.format
+        if args.tags:
+            tags = sorted(set([t.strip() for t in args.tags.split(',') if t.strip()]))
+        else:
+            tags = None
         res = api.ServiceCheck.check(
             check=args.check, host_name=args.host_name, status=int(args.status),
-            timestamp=args.timestamp, message=args.message, tags=args.tags)
+            timestamp=args.timestamp, message=args.message, tags=tags)
         report_warnings(res)
         report_errors(res)
         if format == 'pretty':

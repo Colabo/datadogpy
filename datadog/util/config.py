@@ -1,3 +1,6 @@
+# Unless explicitly stated otherwise all files in this repository are licensed under the BSD-3-Clause License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2015-Present Datadog, Inc
 import os
 import string
 import sys
@@ -113,7 +116,11 @@ def get_config(cfg_path=None, options=None):
 
         config_path = get_config_path(cfg_path, os_name=get_os())
         config = configparser.ConfigParser()
-        config.readfp(skip_leading_wsp(open(config_path)))
+        with open(config_path) as config_file:
+            if is_p3k():
+                config.read_file(skip_leading_wsp(config_file))
+            else:
+                config.readfp(skip_leading_wsp(config_file))
 
         # bulk import
         for option in config.options('Main'):
